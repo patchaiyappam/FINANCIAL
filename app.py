@@ -105,6 +105,10 @@ def get_uid(req) -> str | None:
 def health():
     return jsonify({"status": "ok", "message": "Backend running"})
 
+@app.route('/', methods=['GET'])
+def index():
+    return "Backend is running successfully"
+
 def get_game_state():
     res = supabase.table('game_control').select('*').limit(1).execute()
     return res.data[0] if res.data else None
