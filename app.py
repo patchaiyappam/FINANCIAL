@@ -85,6 +85,22 @@ def _validate_rpc_payload(
             return f"inserts_logs[{i}] missing fields: {missing}"
     return None
 
+def get_uid(req) -> str | None:
+    """Extracts user_id from Bearer token via Supabase Auth."""
+    auth_header = req.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        # Fallback for old clients or debugging - actually let's be strict
+        return None
+    
+    token = auth_header.split(" ")[1]
+    try:
+        # This call verifies the JWT with Supabase
+        user_res = supabase.auth.get_user(token)
+        return user_res.user.id
+    except Exception as e:
+        print(f"Auth error: {e}")
+        return None
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok", "message": "Backend running"})
@@ -113,7 +129,7 @@ def get_case_study():
 
 @app.route('/allocate', methods=['POST'])
 def allocate_month1():
-    user_id = request.headers.get("Authorization")
+    user_id = get_uid(request)
     if not user_id: return jsonify({"error": "Unauthorized"}), 401
     
     game = get_game_state()
@@ -166,7 +182,7 @@ def allocate_month1():
 
 @app.route('/dashboard', methods=['GET'])
 def get_dashboard():
-    user_id = request.headers.get("Authorization")
+    user_id = get_uid(request)
     if not user_id: return jsonify({"error": "Unauthorized"}), 401
     
     player = get_player(user_id)
@@ -183,7 +199,7 @@ def get_dashboard():
 
 @app.route('/lock-turn', methods=['POST'])
 def lock_turn():
-    user_id = request.headers.get("Authorization")
+    user_id = get_uid(request)
     if not user_id: return jsonify({"error": "Unauthorized"}), 401
     
     player = get_player(user_id)
@@ -197,7 +213,7 @@ def lock_turn():
 
 @app.route('/choice', methods=['POST'])
 def make_choice():
-    user_id = request.headers.get("Authorization")
+    user_id = get_uid(request)
     if not user_id: return jsonify({"error": "Unauthorized"}), 401
     
     game = get_game_state()
