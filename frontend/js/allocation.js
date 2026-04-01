@@ -31,6 +31,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     const session = await waitForSession();
     if (!session) return;
 
+    // ── Check if already allocated ──
+    try {
+        const res = await fetch(`${API_BASE_URL}/dashboard`, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
+        });
+        if (res.ok) {
+            // Already allocated! Send to dashboard.
+            window.location.href = 'dashboard.html';
+            return;
+        }
+    } catch (err) {
+        console.warn("Initial status check failed", err);
+    }
+
     window.supabase.auth.onAuthStateChange((event, session) => {
         if (event === 'SIGNED_OUT') window.location.href = '/';
     });
