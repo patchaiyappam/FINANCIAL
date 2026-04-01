@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Scenario — Money Master</title>
+    <meta name="description" content="Review your financial scenario before starting the game.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem;">
+        <div class="glass-card animate-fade-in-up" style="max-width: 560px; width: 100%; text-align: center; padding: 2.5rem;">
+
+            <div style="width: 56px; height: 56px; border-radius: 14px; background: var(--gradient-info); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem; font-size: 1.5rem;">
+                <i class="fa-solid fa-briefcase" style="color: white;"></i>
+            </div>
+
+            <h1 class="g-text" style="font-size: 2rem; font-weight: 800; margin-bottom: 0.5rem;" id="csTitle">Loading...</h1>
+
+            <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;" id="csDesc">
+                Gathering your financial scenario...
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 2rem;">
+                <div class="stat-card stat-info">
+                    <span class="stat-label">Rent (Base)</span>
+                    <span class="stat-value" id="csRent" style="font-size: 1.15rem;">₹0</span>
+                </div>
+                <div class="stat-card stat-primary">
+                    <span class="stat-label">Transport</span>
+                    <span class="stat-value" id="csTransport" style="font-size: 1.15rem;">₹0</span>
+                </div>
+                <div class="stat-card stat-warning">
+                    <span class="stat-label">Food (Avg)</span>
+                    <span class="stat-value" id="csFood" style="font-size: 1.15rem;">₹0</span>
+                </div>
+                <div class="stat-card stat-success">
+                    <span class="stat-label">Family Support</span>
+                    <span class="stat-value" id="csFamily" style="font-size: 1.15rem;">₹0</span>
+                </div>
+            </div>
+
+            <a href="allocation.html" class="btn-glow" style="display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none; padding: 1rem 2.5rem; font-size: 1.05rem;">
+                <i class="fa-solid fa-play"></i>
+                Start Game — Plan Month 1
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./js/config.js"></script>
+    <script src="./js/case-study.js"></script>
+</body>
+</html>

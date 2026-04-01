@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Month 1 Allocation — Money Master</title>
+    <meta name="description" content="Allocate your ₹1,00,000 budget across investments, expenses, and savings.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <style>
+        .allocation-grid {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 1.5rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        @media (max-width: 900px) {
+            .allocation-grid { grid-template-columns: 1fr; }
+        }
+        .alloc-input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+        .alloc-field {
+            display: flex;
+            flex-direction: column;
+        }
+        .total-ring {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: conic-gradient(var(--accent-primary) var(--pct, 100%), rgba(255,255,255,0.05) 0%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            position: relative;
+        }
+        .total-ring-inner {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .total-ring-inner .total-amount {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .total-ring-inner .total-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+    </style>
+</head>
+<body style="padding: 2rem 1rem;">
+
+    <!-- Header -->
+    <div style="text-align: center; margin-bottom: 2rem;" class="animate-fade-in-up">
+        <h1 class="g-text" style="font-size: 2rem; font-weight: 800; margin-bottom: 0.25rem;">Month 1 Allocation</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Distribute your ₹1,00,000 income. Every rupee matters.</p>
+    </div>
+
+    <div class="allocation-grid">
+
+        <!-- LEFT — Form -->
+        <div class="animate-fade-in-up" style="animation-delay: 0.1s;">
+
+            <!-- 1. Lifestyle -->
+            <div class="glass-card" style="margin-bottom: 1.25rem;">
+                <div class="section-header">
+                    <div class="section-icon icon-primary"><i class="fa-solid fa-city"></i></div>
+                    <div>
+                        <div class="section-title">Choose Lifestyle</div>
+                        <div class="section-subtitle">Determines your fixed monthly expenses</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.75rem;">
+                    <div class="radio-card selected" id="radioCity" onclick="selectLifestyle('city')">
+                        <div class="radio-title"><i class="fa-solid fa-building me-1"></i> City</div>
+                        <div class="radio-desc">Rent ₹25K • Food ₹10K • Transport ₹5K</div>
+                    </div>
+                    <div class="radio-card" id="radioOuter" onclick="selectLifestyle('outer')">
+                        <div class="radio-title"><i class="fa-solid fa-tree me-1"></i> Outer Area</div>
+                        <div class="radio-desc">Rent ₹10K • Food ₹10K • Transport ₹5K</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Bike -->
+            <div class="glass-card" style="margin-bottom: 1.25rem;">
+                <div class="section-header">
+                    <div class="section-icon icon-warning"><i class="fa-solid fa-motorcycle"></i></div>
+                    <div>
+                        <div class="section-title">Optional Asset: Bike</div>
+                        <div class="section-subtitle">₹10K down • ₹5K/mo EMI • 50% transport savings</div>
+                    </div>
+                </div>
+                <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer;">
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="bikeStatus">
+                        <span class="toggle-slider"></span>
+                    </div>
+                    <span style="color: var(--text-secondary); font-size: 0.9rem;">Buy a Bike (3-month lock-in)</span>
+                </label>
+            </div>
+
+            <!-- 3. Financial Allocation -->
+            <div class="glass-card">
+                <div class="section-header">
+                    <div class="section-icon icon-success"><i class="fa-solid fa-coins"></i></div>
+                    <div>
+                        <div class="section-title">Financial Allocation</div>
+                        <div class="section-subtitle">Distribute your remaining income</div>
+                    </div>
+                </div>
+                <form id="allocationForm">
+                    <div class="alloc-input-group">
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-house-chimney"></i> Rent (Locked)</label>
+                            <input type="number" class="input-glass" id="valRent" value="25000" readonly>
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-car"></i> Transport (Locked)</label>
+                            <input type="number" class="input-glass" id="valTransport" value="5000" readonly>
+                        </div>
+                        <div class="alloc-field" id="bikeDpwContainer" style="display: none;">
+                            <label class="label-glass text-amber"><i class="fa-solid fa-motorcycle"></i> Bike Down Payment</label>
+                            <input type="number" class="input-glass" id="valBikeDp" value="0" readonly>
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-utensils"></i> Food</label>
+                            <input type="number" class="input-glass user-input" id="valFood" value="10000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-people-roof"></i> Family</label>
+                            <input type="number" class="input-glass user-input" id="valFamily" value="5000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-chart-line"></i> Stocks</label>
+                            <input type="number" class="input-glass user-input" id="valStocks" value="10000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-coins"></i> Gold</label>
+                            <input type="number" class="input-glass user-input" id="valGold" value="10000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-shield-halved"></i> Emergency Fund</label>
+                            <input type="number" class="input-glass user-input" id="valEmergency" value="10000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-wallet"></i> Misc (Cash left)</label>
+                            <input type="number" class="input-glass user-input" id="valMisc" value="25000" min="0">
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- RIGHT — Summary Sticky -->
+        <div class="animate-fade-in-up" style="animation-delay: 0.2s;">
+            <div class="glass-card-static" style="position: sticky; top: 2rem; border-color: var(--border-glow);">
+                <div style="text-align: center; margin-bottom: 1.5rem;">
+                    <p style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;">Budget Status</p>
+                    <div class="total-ring" id="totalRing" style="--pct: 100%;">
+                        <div class="total-ring-inner">
+                            <span class="total-amount text-emerald" id="totalText">₹1,00,000</span>
+                            <span class="total-label">of ₹1,00,000</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="progress-glass" style="margin-bottom: 1rem;">
+                    <div class="progress-fill" id="totalBar" style="width: 100%;"></div>
+                </div>
+
+                <p id="statusText" style="text-align: center; font-size: 0.85rem; color: var(--accent-emerald); margin-bottom: 1.5rem;">
+                    ✓ Budget perfectly balanced
+                </p>
+
+                <button class="btn-glow-success" id="btnSubmit" style="width: 100%; padding: 0.875rem; font-size: 1rem; border-radius: var(--radius-full); border: none; font-family: var(--font-primary); cursor: pointer; color: white;">
+                    <i class="fa-solid fa-check me-2"></i>Confirm Allocation
+                </button>
+
+                <p id="errorMsg" style="text-align: center; color: var(--accent-rose); font-size: 0.85rem; margin-top: 0.75rem; display: none;"></p>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./js/config.js"></script>
+    <script src="./js/allocation.js"></script>
+</body>
+</html>

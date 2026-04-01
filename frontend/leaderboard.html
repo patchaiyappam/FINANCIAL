@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaderboard — Money Master</title>
+    <meta name="description" content="Real-time leaderboard tracking net worth, trust, and risk rankings.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <style>
+        .lb-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        .podium {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: flex-end;
+            margin: 2rem 0 3rem;
+        }
+        .podium-card {
+            text-align: center;
+            border-radius: var(--radius-lg);
+            padding: 1.5rem 1rem;
+            position: relative;
+            transition: all var(--transition-base);
+            min-width: 140px;
+        }
+        .podium-card:hover { transform: translateY(-4px); }
+        .podium-card .podium-rank {
+            font-size: 2rem;
+            margin-bottom: 0.25rem;
+        }
+        .podium-card .podium-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+        .podium-card .podium-worth {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .podium-1 {
+            background: linear-gradient(180deg, rgba(251,191,36,0.15) 0%, rgba(251,191,36,0.03) 100%);
+            border: 1px solid rgba(251,191,36,0.3);
+            order: 2;
+            padding-bottom: 2.5rem;
+        }
+        .podium-1 .podium-worth { color: #fbbf24; }
+        .podium-2 {
+            background: linear-gradient(180deg, rgba(203,213,225,0.1) 0%, rgba(203,213,225,0.02) 100%);
+            border: 1px solid rgba(203,213,225,0.2);
+            order: 1;
+        }
+        .podium-2 .podium-worth { color: #94a3b8; }
+        .podium-3 {
+            background: linear-gradient(180deg, rgba(217,119,6,0.1) 0%, rgba(217,119,6,0.02) 100%);
+            border: 1px solid rgba(217,119,6,0.2);
+            order: 3;
+        }
+        .podium-3 .podium-worth { color: #d97706; }
+        .rest-row {
+            display: grid;
+            grid-template-columns: 40px 1fr auto auto auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-fast);
+        }
+        .rest-row:hover { background: rgba(99, 102, 241, 0.04); }
+        .rest-row .rank-num {
+            font-weight: 700;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-family: var(--font-mono);
+        }
+        .rest-row .player-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .rest-row .stat-chip {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: var(--radius-full);
+            font-family: var(--font-mono);
+        }
+        .separator { border-top: 1px solid rgba(255,255,255,0.05); margin: 0.25rem 0; }
+    </style>
+</head>
+<body>
+    <div class="lb-container">
+
+        <!-- Header -->
+        <div style="text-align: center; margin-bottom: 0.5rem;" class="animate-fade-in-up">
+            <h1 id="leaderboardTitle" class="display-hero g-text" style="margin-bottom: 0.5rem;">Live Leaderboard</h1>
+            <p id="leaderboardSubtitle" style="color: var(--text-muted); font-size: 0.9rem;">Tracking real-time rankings...</p>
+            <span class="badge-live" id="liveIndicator">LIVE</span>
+        </div>
+
+        <!-- Podium (Top 3) -->
+        <div class="podium stagger-children" id="podiumContainer">
+            <!-- Filled by JS -->
+        </div>
+
+        <!-- Rest -->
+        <div class="glass-card-static" id="restContainer">
+            <div style="display: grid; grid-template-columns: 40px 1fr auto auto auto; gap: 1rem; padding: 0 1rem 0.5rem; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em;">
+                <span>#</span>
+                <span>Player</span>
+                <span>Net Worth</span>
+                <span>Trust</span>
+                <span>Risk</span>
+            </div>
+            <div id="leaderboardRest">
+                <div style="text-align: center; padding: 2rem;">
+                    <div class="spinner-glass" style="margin: 0 auto;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 2rem;">
+            <a href="dashboard.html" class="btn-ghost" style="text-decoration: none;">
+                <i class="fa-solid fa-arrow-left"></i> Dashboard
+            </a>
+            <button id="logoutBtn" class="btn-ghost" style="border-color: rgba(244,63,94,0.3); color: var(--accent-rose);">
+                <i class="fa-solid fa-right-from-bracket"></i> Logout
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./js/config.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const podium = document.getElementById('podiumContainer');
+            const restList = document.getElementById('leaderboardRest');
+            const title = document.getElementById('leaderboardTitle');
+            const subtitle = document.getElementById('leaderboardSubtitle');
+            const liveIndicator = document.getElementById('liveIndicator');
+
+            function formatINR(val) {
+                return `₹${Math.floor(val).toLocaleString('en-IN')}`;
+            }
+
+            function riskLabel(level) {
+                const l = level || 50;
+                if (l > 70) return `<span style="color:var(--accent-rose)">${l}</span>`;
+                if (l > 40) return `<span style="color:var(--accent-amber)">${l}</span>`;
+                return `<span style="color:var(--accent-emerald)">${l}</span>`;
+            }
+
+            async function fetchLeaderboard() {
+                try {
+                    // Game status
+                    try {
+                        const statusRes = await fetch(`${API_BASE_URL}/game-status`);
+                        if (statusRes.ok) {
+                            const game = await statusRes.json();
+                            if (game.game_status === 'ended') {
+                                title.innerText = 'Final Results';
+                                title.className = 'display-hero';
+                                title.style.color = 'var(--accent-amber)';
+                                title.style['-webkit-text-fill-color'] = 'unset';
+                                subtitle.innerText = '12 months completed. Here are the final standings.';
+                                liveIndicator.style.display = 'none';
+                            } else {
+                                subtitle.innerText = `Month ${game.current_month} • Status: ${game.game_status.toUpperCase()}`;
+                            }
+                        }
+                    } catch (e) {}
+
+                    const res = await fetch(`${API_BASE_URL}/leaderboard`);
+                    const data = await res.json();
+
+                    if (!data || data.length === 0) {
+                        podium.innerHTML = '';
+                        restList.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:2rem;">No players yet.</p>';
+                        return;
+                    }
+
+                    // Top 3 → Podium
+                    const top3 = data.slice(0, 3);
+                    const trophies = ['🏆', '🥈', '🥉'];
+                    let podiumHTML = '';
+
+                    // Order: 2nd, 1st, 3rd
+                    const order = [1, 0, 2];
+                    order.forEach(idx => {
+                        if (top3[idx]) {
+                            const p = top3[idx];
+                            podiumHTML += `
+                                <div class="podium-card podium-${idx + 1}">
+                                    <div class="podium-rank">${trophies[idx]}</div>
+                                    <div class="podium-name">${p.users?.name || 'Anonymous'}</div>
+                                    <div class="podium-worth">${formatINR(p.net_worth)}</div>
+                                    <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">
+                                        Trust ${p.trust_score || 0} • Risk ${p.risk_level || 50}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    });
+                    podium.innerHTML = podiumHTML;
+
+                    // Rest → List
+                    const rest = data.slice(3);
+                    if (rest.length === 0) {
+                        restList.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:1rem;">No more players.</p>';
+                    } else {
+                        restList.innerHTML = rest.map((p, i) => `
+                            <div class="rest-row">
+                                <span class="rank-num">${i + 4}</span>
+                                <span class="player-name">${p.users?.name || 'Anonymous'}</span>
+                                <span class="stat-chip" style="color: var(--accent-emerald);">${formatINR(p.net_worth)}</span>
+                                <span class="stat-chip" style="color: var(--accent-cyan);">${p.trust_score || 0}</span>
+                                <span class="stat-chip">${riskLabel(p.risk_level)}</span>
+                            </div>
+                            ${i < rest.length - 1 ? '<div class="separator"></div>' : ''}
+                        `).join('');
+                    }
+
+                } catch (e) {
+                    console.error(e);
+                    restList.innerHTML = '<p style="text-align:center; color:var(--accent-rose); padding:2rem;">Error loading leaderboard</p>';
+                }
+            }
+
+            await fetchLeaderboard();
+            setInterval(fetchLeaderboard, 3000);
+
+            document.getElementById('logoutBtn').addEventListener('click', async () => {
+                await window.supabase.auth.signOut();
+                window.location.href = 'index.html';
+            });
+        });
+    </script>
+</body>
+</html>

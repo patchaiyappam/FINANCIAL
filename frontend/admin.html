@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — Money Master</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <style>
+        .admin-layout { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+        .status-bar {
+            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.05));
+            border: 1px solid rgba(99,102,241,0.2);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--accent-emerald);
+            animation: pulse-dot 1.5s infinite;
+        }
+        .admin-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+        @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
+        .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
+        select.input-glass { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 16px; padding-right: 2.5rem; }
+        .event-chip {
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: 0.625rem 0.875rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .lb-row { display: grid; grid-template-columns: 32px 1fr auto; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.9rem; }
+        .event-results-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 0.83rem;
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            display: none;
+            margin-top: 0.75rem;
+        }
+        .pulse-success { animation: successPulse 0.5s ease-out; }
+        @keyframes successPulse {
+            0% { background: rgba(16,185,129,0.15); }
+            100% { background: transparent; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar-glass">
+        <div style="max-width:1100px; margin:0 auto; padding:0 1rem; display:flex; justify-content:space-between; align-items:center;">
+            <span class="navbar-brand-custom g-text">Money Master</span>
+            <span style="color: var(--text-muted); font-size: 0.8rem; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); padding: 0.3rem 0.75rem; border-radius: var(--radius-full);">
+                <i class="fa-solid fa-shield-halved"></i> Admin Panel
+            </span>
+        </div>
+    </nav>
+
+    <div class="admin-layout">
+
+        <!-- Status Bar -->
+        <div class="status-bar animate-fade-in-up">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div class="status-dot"></div>
+                <span style="font-weight: 700; font-size: 1rem;">Game Engine</span>
+                <span id="gameStatusLabel" style="color: var(--text-secondary); font-size: 0.9rem;">Loading...</span>
+            </div>
+            <div class="admin-actions">
+                <button class="btn-glow" id="startBtn" style="padding: 0.6rem 1.25rem; font-size: 0.88rem; border: none; cursor: pointer; font-family: var(--font-primary);">
+                    <i class="fa-solid fa-play"></i> Start Game
+                </button>
+                <button class="btn-glow" id="nextBtn" style="padding: 0.6rem 1.25rem; font-size: 0.88rem; border: none; cursor: pointer; font-family: var(--font-primary); background: var(--gradient-warning);">
+                    <i class="fa-solid fa-forward-step"></i> Next Month
+                </button>
+                <button class="btn-glow-danger" id="endBtn" style="padding: 0.6rem 1.25rem; font-size: 0.88rem; border: none; cursor: pointer; font-family: var(--font-primary);">
+                    <i class="fa-solid fa-flag-checkered"></i> End Game
+                </button>
+                <a href="leaderboard.html" target="_blank" class="btn-ghost" style="padding: 0.6rem 1.25rem; font-size: 0.88rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <i class="fa-solid fa-trophy"></i> Leaderboard
+                </a>
+            </div>
+        </div>
+
+        <!-- System Log -->
+        <div id="systemLog" style="display: none;" class="alert-glass alert-success mb-section animate-slide-down">
+            <i class="fa-solid fa-circle-check"></i>
+            <span id="systemLogText"></span>
+        </div>
+
+        <!-- Next Month Results -->
+        <div class="event-results-box" id="eventResults"></div>
+
+        <div class="two-col">
+            <!-- LEFT: Event Manager + Choice Creator -->
+            <div>
+                <!-- Event Manager -->
+                <div class="glass-card" style="margin-bottom: 1.25rem;">
+                    <div class="section-header">
+                        <div class="section-icon icon-danger"><i class="fa-solid fa-bolt"></i></div>
+                        <div>
+                            <div class="section-title">Global Event Manager</div>
+                            <div class="section-subtitle">Create events applied to all players for a month</div>
+                        </div>
+                    </div>
+                    <form id="eventForm">
+                        <div class="form-row">
+                            <div>
+                                <label class="label-glass">Target Month (1–12)</label>
+                                <input type="number" id="evMonth" class="input-glass" min="1" max="12" placeholder="e.g. 3" required>
+                            </div>
+                            <div>
+                                <label class="label-glass">Event Name</label>
+                                <input type="text" id="evName" class="input-glass" placeholder="e.g. Market Crash" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div>
+                                <label class="label-glass">Event Type</label>
+                                <select id="evType" class="input-glass">
+                                    <option value="fixed">Fixed ₹ Amount</option>
+                                    <option value="percentage">Percentage %</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="label-glass">Impact Target</label>
+                                <select id="evImpact" class="input-glass">
+                                    <option value="cash">Cash</option>
+                                    <option value="stocks">Stocks</option>
+                                    <option value="gold">Gold</option>
+                                    <option value="expense_increase">Expense Increase</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div>
+                                <label class="label-glass">Value (+/-)</label>
+                                <input type="number" id="evValue" class="input-glass" placeholder="-10 or 5000" required>
+                            </div>
+                            <div>
+                                <label class="label-glass">Description</label>
+                                <input type="text" id="evDesc" class="input-glass" placeholder="Brief description">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-glow-danger" style="width: 100%; padding: 0.7rem; font-size: 0.9rem; border: none; cursor: pointer; font-family: var(--font-primary);">
+                            <i class="fa-solid fa-plus"></i> Add Global Event
+                        </button>
+                    </form>
+                    <div style="margin-top: 1rem;">
+                        <p style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem;">Existing Events</p>
+                        <div id="eventList" style="max-height: 180px; overflow-y: auto;">
+                            <p style="color: var(--text-muted); font-size: 0.85rem;">No events added yet.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Optional Choice Creator -->
+                <div class="glass-card">
+                    <div class="section-header">
+                        <div class="section-icon icon-warning"><i class="fa-solid fa-dice"></i></div>
+                        <div>
+                            <div class="section-title">Optional Choice Creator</div>
+                            <div class="section-subtitle">Monthly opportunities for players with risk/reward</div>
+                        </div>
+                    </div>
+                    <form id="choiceForm">
+                        <div class="form-row">
+                            <div>
+                                <label class="label-glass">Target Month</label>
+                                <input type="number" id="optMonth" class="input-glass" min="1" max="12" required>
+                            </div>
+                            <div>
+                                <label class="label-glass">Choice Name</label>
+                                <input type="text" id="optName" class="input-glass" placeholder="e.g. Stock Tip" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div>
+                                <label class="label-glass">Cost (₹)</label>
+                                <input type="number" id="optCost" class="input-glass" required>
+                            </div>
+                            <div>
+                                <label class="label-glass">Risk Description</label>
+                                <input type="text" id="optRisk" class="input-glass" placeholder="High Risk" required>
+                            </div>
+                        </div>
+                        <div class="form-row-3">
+                            <div>
+                                <label class="label-glass">Reward Type</label>
+                                <select id="optRewardType" class="input-glass">
+                                    <option value="cash">Cash</option>
+                                    <option value="stocks">Stocks</option>
+                                    <option value="gold">Gold</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="label-glass">Win Probability %</label>
+                                <input type="number" id="optProb" class="input-glass" placeholder="50" min="0" max="100" required>
+                            </div>
+                            <div>
+                                <label class="label-glass">Reward Value (₹)</label>
+                                <input type="number" id="optVal" class="input-glass" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-glow" style="width: 100%; padding: 0.7rem; font-size: 0.9rem; border: none; cursor: pointer; font-family: var(--font-primary); background: var(--gradient-warning);">
+                            <i class="fa-solid fa-plus"></i> Add Optional Choice
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- RIGHT: Leaderboard -->
+            <div>
+                <div class="glass-card" style="height: 100%;">
+                    <div class="section-header">
+                        <div class="section-icon icon-warning"><i class="fa-solid fa-trophy"></i></div>
+                        <div>
+                            <div class="section-title">Live Standings</div>
+                            <div class="section-subtitle">Current player rankings</div>
+                        </div>
+                    </div>
+                    <button class="btn-ghost" id="refreshLeaderboardBtn" style="font-size: 0.8rem; padding: 0.4rem 1rem; margin-bottom: 0.75rem;">
+                        <i class="fa-solid fa-arrows-rotate"></i> Refresh
+                    </button>
+                    <div id="leaderboardTbody" style="max-height: 400px; overflow-y: auto;">
+                        <div style="text-align: center; padding: 2rem;">
+                            <div class="spinner-glass" style="margin: 0 auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./js/config.js"></script>
+    <script src="./js/admin.js"></script>
+</body>
+</html>

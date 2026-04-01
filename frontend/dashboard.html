@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Money Master</title>
+    <meta name="description" content="Track your financial portfolio, make decisions, and survive the game.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <style>
+        .dashboard-layout {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1rem 3rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+        }
+        @media (max-width: 900px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+        @media (max-width: 900px) {
+            .two-col { grid-template-columns: 1fr; }
+        }
+        .event-scroll {
+            max-height: 350px;
+            overflow-y: auto;
+            padding-right: 0.25rem;
+        }
+        .sell-btn {
+            background: transparent;
+            border: 1px solid var(--border-glass);
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: var(--radius-full);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            margin-top: 0.5rem;
+        }
+        .sell-btn:hover {
+            border-color: var(--accent-rose);
+            color: var(--accent-rose);
+            background: rgba(244, 63, 94, 0.08);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ── Navbar ── -->
+    <nav class="navbar-glass">
+        <div style="max-width: 1200px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center;">
+            <span class="navbar-brand-custom g-text">Money Master</span>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span id="userName" style="color: var(--text-secondary); font-size: 0.85rem;"></span>
+                <span class="badge-glow" id="monthBadge">Month 1</span>
+                <a href="leaderboard.html" class="btn-ghost" style="font-size: 0.8rem; padding: 0.4rem 1rem; text-decoration: none;">
+                    <i class="fa-solid fa-trophy"></i> Board
+                </a>
+                <button class="btn-ghost" id="logoutBtn" style="font-size: 0.8rem; padding: 0.4rem 1rem; border-color: rgba(244,63,94,0.3); color: var(--accent-rose);">
+                    Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="dashboard-layout">
+
+        <!-- ── Net Worth Hero ── -->
+        <div class="net-worth-display animate-fade-in-up" style="margin-top: 1.5rem; margin-bottom: 0.5rem;">
+            <div class="net-worth-label">Total Net Worth</div>
+            <div class="net-worth-value" id="netWorthVal">₹0</div>
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 0.5rem;">
+                <span id="riskBadge" style="font-size: 0.75rem; color: var(--text-muted);">
+                    <i class="fa-solid fa-gauge"></i> Risk: <span id="riskVal">—</span>
+                </span>
+                <span id="trustBadge" style="font-size: 0.75rem; color: var(--text-muted);">
+                    <i class="fa-solid fa-handshake"></i> Trust: <span id="trustVal">0</span>
+                </span>
+            </div>
+        </div>
+
+        <!-- ── Stats Grid ── -->
+        <div class="stats-grid stagger-children mb-section">
+            <div class="stat-card stat-success">
+                <span class="stat-icon"><i class="fa-solid fa-wallet"></i></span>
+                <span class="stat-label">Liquid Cash</span>
+                <span class="stat-value" id="cashVal">₹0</span>
+            </div>
+            <div class="stat-card stat-info">
+                <span class="stat-icon"><i class="fa-solid fa-chart-line"></i></span>
+                <span class="stat-label">Stocks</span>
+                <span class="stat-value" id="stocksVal">₹0</span>
+                <button class="sell-btn" onclick="sellAsset('stocks')"><i class="fa-solid fa-arrow-right-from-bracket"></i> Sell</button>
+            </div>
+            <div class="stat-card stat-warning">
+                <span class="stat-icon"><i class="fa-solid fa-coins"></i></span>
+                <span class="stat-label">Gold</span>
+                <span class="stat-value" id="goldVal">₹0</span>
+                <button class="sell-btn" onclick="sellAsset('gold')"><i class="fa-solid fa-arrow-right-from-bracket"></i> Sell</button>
+            </div>
+            <div class="stat-card stat-primary">
+                <span class="stat-icon"><i class="fa-solid fa-shield-halved"></i></span>
+                <span class="stat-label">Emergency Fund</span>
+                <span class="stat-value" id="emergencyVal">₹0</span>
+            </div>
+            <div class="stat-card stat-danger">
+                <span class="stat-icon"><i class="fa-solid fa-hand-holding-dollar"></i></span>
+                <span class="stat-label">Active Loans</span>
+                <span class="stat-value" id="loanVal">₹0</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon" style="color: var(--text-muted);"><i class="fa-solid fa-hourglass-half"></i></span>
+                <span class="stat-label">Pending Cash</span>
+                <span class="stat-value" id="pendingVal" style="color: var(--text-secondary);">₹0</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon" style="color: var(--text-muted);"><i class="fa-solid fa-city"></i></span>
+                <span class="stat-label">Lifestyle</span>
+                <span class="stat-value" id="lifestyleVal" style="color: var(--text-secondary); font-size: 1rem;">—</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-icon" style="color: var(--text-muted);"><i class="fa-solid fa-motorcycle"></i></span>
+                <span class="stat-label">Bike</span>
+                <span class="stat-value" id="bikeVal" style="color: var(--text-secondary); font-size: 1rem;">—</span>
+            </div>
+        </div>
+
+        <!-- ── Two Column: Social + Choices ── -->
+        <div class="two-col mb-section">
+
+            <!-- Social Investment -->
+            <div class="glass-card animate-fade-in-up">
+                <div class="section-header">
+                    <div class="section-icon icon-primary"><i class="fa-solid fa-people-group"></i></div>
+                    <div>
+                        <div class="section-title">Social Investment</div>
+                        <div class="section-subtitle">Help relatives → build trust → unlock bonuses</div>
+                    </div>
+                </div>
+
+                <div id="relativeContainer">
+                    <!-- Poor Relative -->
+                    <div class="choice-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span style="font-weight: 600; font-size: 0.95rem;"><i class="fa-solid fa-heart-pulse text-rose" style="margin-right:0.4rem;"></i>Poor Family Emergency</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">Trust: <span id="trustPoor" style="color: var(--accent-primary);">0</span></span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem;" onclick="handleRelative('poor','none')">Skip</button>
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem; border-color: rgba(6,182,212,0.3); color: var(--accent-cyan);" onclick="handleRelative('poor','medium')">₹2K Help</button>
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem; border-color: rgba(16,185,129,0.3); color: var(--accent-emerald);" onclick="handleRelative('poor','high')">₹5K Help</button>
+                        </div>
+                    </div>
+
+                    <!-- Rich Relative -->
+                    <div class="choice-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span style="font-weight: 600; font-size: 0.95rem;"><i class="fa-solid fa-champagne-glasses text-amber" style="margin-right:0.4rem;"></i>Rich Relative Party</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">Trust: <span id="trustRich" style="color: var(--accent-primary);">0</span></span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem;" onclick="handleRelative('rich','none')">Skip</button>
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem; border-color: rgba(6,182,212,0.3); color: var(--accent-cyan);" onclick="handleRelative('rich','medium')">₹2K Gift</button>
+                            <button class="btn-ghost" style="flex:1; font-size:0.8rem; padding:0.4rem; border-color: rgba(16,185,129,0.3); color: var(--accent-emerald);" onclick="handleRelative('rich','high')">₹5K Gift</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Optional Choices -->
+            <div class="glass-card animate-fade-in-up">
+                <div class="section-header">
+                    <div class="section-icon icon-warning"><i class="fa-solid fa-dice"></i></div>
+                    <div>
+                        <div class="section-title">Optional Choices</div>
+                        <div class="section-subtitle">High risk, high reward opportunities</div>
+                    </div>
+                </div>
+                <div id="optionalChoicesContainer">
+                    <p style="color: var(--text-muted); font-size: 0.9rem;">No opportunities this month.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Event History ── -->
+        <div class="glass-card mb-section animate-fade-in-up">
+            <div class="section-header">
+                <div class="section-icon icon-info"><i class="fa-solid fa-scroll"></i></div>
+                <div>
+                    <div class="section-title">Monthly Event Log</div>
+                    <div class="section-subtitle">Your financial journey month by month</div>
+                </div>
+            </div>
+            <div class="event-scroll" id="eventLogContainer">
+                <p style="color: var(--text-muted); font-size: 0.9rem;">No events yet — complete months to see history.</p>
+            </div>
+        </div>
+
+        <!-- ── Status Banner ── -->
+        <div id="statusBanner" class="alert-glass alert-warning" style="display: none; justify-content: center; margin-bottom: 1rem;">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+            <span style="font-weight: 600;">Waiting for admin to process next month...</span>
+        </div>
+
+        <!-- ── End Turn Button ── -->
+        <div style="text-align: center;" id="endTurnArea">
+            <button class="btn-glow-success" id="endTurnBtn" style="padding: 0.875rem 3rem; font-size: 1rem; border: none; font-family: var(--font-primary); cursor: pointer;">
+                <i class="fa-solid fa-forward-step" style="margin-right: 0.5rem;"></i>Complete Month &amp; Lock Turn
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./js/config.js"></script>
+    <script src="./js/dashboard.js"></script>
+</body>
+</html>
