@@ -100,15 +100,19 @@ def allocate_month1():
         "status": "waiting"
     }
 
-    supabase.table('player_state').upsert(new_state).execute()
-    supabase.table('player_month_log').insert({
-        "user_id": user_id,
-        "month": 1,
-        "starting_cash": INITIAL_BUDGET,
-        "ending_cash": cash,
-        "net_worth": INITIAL_BUDGET,
-        "summary": "💼 Initial Allocation Completed. Your financial journey begins!"
-    }).execute()
+    try:
+        supabase.table('player_state').upsert(new_state).execute()
+        supabase.table('player_month_log').insert({
+            "user_id": user_id,
+            "month": 1,
+            "starting_cash": INITIAL_BUDGET,
+            "ending_cash": cash,
+            "net_worth": INITIAL_BUDGET,
+            "summary": "💼 Initial Allocation Completed. Your financial journey begins!"
+        }).execute()
+    except Exception as e:
+        print(f"DEBUG: Allocation Database Error: {e}")
+        return jsonify({"error": f"Database processing failed: {str(e)}"}), 500
 
     return jsonify({
         "message": "Month 1 allocation confirmed. Your turn is locked.",
