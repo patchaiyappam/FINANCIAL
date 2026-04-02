@@ -4,7 +4,7 @@ from routes.player_routes import player_bp
 from routes.admin_routes import admin_bp
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # Register Blueprints
 app.register_blueprint(player_bp)
