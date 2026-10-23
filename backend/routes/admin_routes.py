@@ -17,7 +17,8 @@ from engine.market_engine import calculate_risk_score, resolve_market_scenario
 from models.constants import MARKET_REGIMES
 from models.news_library import list_events, get_event, events_by_category
 from engine.scoring import calculate_financial_health_score
-from models.constants import TOTAL_MONTHS, LIFESTYLE_COSTS
+from engine.investment_engine import portfolio_value
+from models.constants import TOTAL_MONTHS
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -385,13 +386,15 @@ def admin_me():
 @admin_required
 def admin_players():
     """All players with their name/email, ranked by Financial Health Score (ADR-008)."""
-    res = (supabase.table('player_state')
-           .select('*, users(name, email)')
-           .order('financial_health_score', desc=True)
-           .order('net_worth', desc=True)
-           .execute())
+    res = supabase.table('player_state').select('*, users(name, email)').execute()
+    from engine.scoring import score_player_snapshot
+    players = res.data or []
+    for player in players:
+        player.update(score_player_snapshot(player))
+    players.sort(key=lambda p: (float(p.get('financial_health_score') or 0),
+                                float(p.get('net_worth') or 0)), reverse=True)
     game = get_game_state()
-    return jsonify({"players": res.data or [], "game": game})
+    return jsonify({"players": players, "game": game})
 
 
 # ──────────────────────────────────────────────
@@ -430,8 +433,9 @@ def update_player():
 
     # Net worth is always recomputed from components — never trust a typed value.
     merged = {**current, **fields}
+    investment_assets = portfolio_value(merged.get('investment_portfolio') or {})
     net_worth = (float(merged['cash']) + float(merged['stocks']) + float(merged['gold'])
-                 + float(merged['emergency_fund']) - float(merged['loans']))
+                 + float(merged['emergency_fund']) + investment_assets - float(merged['loans']))
     fields['net_worth'] = net_worth
 
     # QA-004 fix: net worth was already recomputed above, but the leaderboard
@@ -444,15 +448,16 @@ def update_player():
     risk_state = {
         "cash": float(merged['cash']), "stocks": float(merged['stocks']),
         "gold": float(merged['gold']), "emergency_fund": float(merged['emergency_fund']),
+        "investment_portfolio": merged.get('investment_portfolio') or {},
         "loans": float(merged['loans'])
     }
     risk_level = calculate_risk_score(risk_state)
     month = int(merged.get('month', 1) or 1)
-    lifestyle = merged.get('lifestyle_type') or 'city'
-    monthly_expense = LIFESTYLE_COSTS.get(lifestyle, LIFESTYLE_COSTS['city'])['total']
+    from engine.monthly_processor import household_expenses
+    monthly_expense = household_expenses(merged, month)['current']
     discipline_avg = float(merged.get('discipline_score', 100) or 100)
     total_assets = (risk_state['cash'] + risk_state['stocks']
-                     + risk_state['gold'] + risk_state['emergency_fund'])
+                     + risk_state['gold'] + risk_state['emergency_fund'] + investment_assets)
     # D-09: same scorer contract as the engine — income + injected assets + wedding.
     from engine.scoring import spouse_score_inputs
     spouse_income, spouse_assets, wedding_cost = spouse_score_inputs(merged.get('spouse_archetype'))
@@ -740,6 +745,8 @@ def admin_roster():
     played_rows = supabase.table('player_state').select('user_id').execute().data or []
     admin_ids = {r['user_id'] for r in admin_rows}
     played_ids = {r['user_id'] for r in played_rows}
+    absent_rows = supabase.table('player_month_actions').select('user_id').eq('month', 0).eq('action_key', 'absent').execute().data or []
+    absent_ids = {r['user_id'] for r in absent_rows}
     roster = []
     for u in users:
         if u['id'] in admin_ids:
@@ -751,6 +758,7 @@ def admin_roster():
             'username': username,
             'name': u.get('name') or username,
             'played': u['id'] in played_ids,
+            'absent': u['id'] in absent_ids and u['id'] not in played_ids,
         })
     roster.sort(key=lambda r: r['username'])
     return jsonify({'roster': roster})

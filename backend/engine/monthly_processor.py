@@ -37,6 +37,7 @@ from engine.market_engine import (
     calculate_investment_growth, calculate_inflation_adjustment,
     calculate_net_worth, calculate_risk_score
 )
+from engine.investment_engine import process_investment_portfolio, portfolio_value
 from engine.scoring import (
     calculate_financial_health_score, update_discipline_average, spouse_score_inputs
 )
@@ -89,6 +90,7 @@ def process_month_for_player(player: dict, month: int,
     stocks = float(player.get('stocks', 0))
     gold = float(player.get('gold', 0))
     emergency_fund = float(player.get('emergency_fund', 0))
+    investment_portfolio = player.get('investment_portfolio') or {}
     trust_score = float(player.get('trust_score', 0) or 0)
     risk_level = int(player.get('risk_level', 50) or 50)
     lifestyle = player.get('lifestyle_type', 'city')
@@ -207,12 +209,23 @@ def process_month_for_player(player: dict, month: int,
     for g_log in growth['logs']:
         event_log.append(g_log)
 
+    # New investment instruments use the SAME market scenario for every player.
+    # Locked products mature back into cash; otherwise they remain in the portfolio.
+    portfolio_growth = process_investment_portfolio(
+        investment_portfolio, month, growth['scenario']
+    )
+    investment_portfolio = portfolio_growth['portfolio']
+    if portfolio_growth['cash_credit']:
+        cash += portfolio_growth['cash_credit']
+    event_log.extend(portfolio_growth['logs'])
+
     # ════════════════════════════════════════════
     # STEP 5: DYNAMIC EVENTS
     # ════════════════════════════════════════════
     # Build a temporary player state for event generation with current trust
     temp_player = {**player, 'cash': cash, 'stocks': stocks, 'gold': gold,
-                   'emergency_fund': emergency_fund, 'trust_score': trust_score}
+                   'emergency_fund': emergency_fund, 'investment_portfolio': investment_portfolio,
+                   'trust_score': trust_score}
     events = generate_events_for_player(temp_player, month, admin_events, auto_events)
     events_triggered = events
 
@@ -336,12 +349,15 @@ def process_month_for_player(player: dict, month: int,
     # Calculate risk level
     temp_state = {
         'cash': cash, 'stocks': stocks, 'gold': gold,
-        'emergency_fund': emergency_fund, 'loans': total_loan_outstanding
+        'emergency_fund': emergency_fund, 'investment_portfolio': investment_portfolio,
+        'loans': total_loan_outstanding
     }
     risk_level = calculate_risk_score(temp_state)
 
     # Net worth
-    net_worth = calculate_net_worth(cash, stocks, gold, emergency_fund, total_loan_outstanding)
+    net_worth = calculate_net_worth(
+        cash, stocks, gold, emergency_fund, total_loan_outstanding, investment_portfolio
+    )
 
     # ════════════════════════════════════════════
     # STEP 10: FINANCIAL HEALTH SCORE (ADR-008)
@@ -349,7 +365,7 @@ def process_month_for_player(player: dict, month: int,
     # ════════════════════════════════════════════
     prev_discipline = float(player.get('discipline_score', 100) or 100)
     discipline_avg = update_discipline_average(prev_discipline, month, month_discipline)
-    total_assets = cash + stocks + gold + emergency_fund
+    total_assets = cash + stocks + gold + emergency_fund + portfolio_value(investment_portfolio)
     
     # D-09: one shared contract for the spouse scoring inputs (income + injected
     # assets + wedding cost); D-03 folds them into the net-worth normalization.
@@ -357,7 +373,7 @@ def process_month_for_player(player: dict, month: int,
 
     score_result = calculate_financial_health_score(
         net_worth=net_worth, month=month,
-        emergency_fund=emergency_fund, monthly_expense=adjusted_expense,
+        emergency_fund=emergency_fund, monthly_expense=expense_details['current'],
         loans=total_loan_outstanding, total_assets=total_assets,
         risk_score=risk_level, discipline_avg=discipline_avg,
         spouse_income=spouse_income,
@@ -380,6 +396,7 @@ def process_month_for_player(player: dict, month: int,
         "stocks": round(stocks, 2),
         "gold": round(gold, 2),
         "emergency_fund": round(emergency_fund, 2),
+        "investment_portfolio": investment_portfolio,
         "lifestyle_type": lifestyle,
         "bike_status": bike_status,
         "loans": round(total_loan_outstanding, 2),

@@ -11,6 +11,7 @@ from models.constants import (
     SCORE_WEIGHTS, NW_NORMALIZATION_CAP, LIQUIDITY_TARGET_MONTHS,
     MONTHLY_INCOME, INITIAL_BUDGET, MARRIAGE_MONTH
 )
+from engine.investment_engine import portfolio_value
 
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
@@ -39,18 +40,17 @@ def spouse_score_inputs(spouse_arch_id) -> tuple:
 
 def score_player_snapshot(player: dict) -> dict:
     """Refresh final standings after the last round's player actions."""
-    from engine.market_engine import calculate_risk_score, calculate_inflation_adjustment
-    from models.constants import LIFESTYLE_COSTS
+    from engine.market_engine import calculate_risk_score
+    from engine.monthly_processor import household_expenses
     amounts = {key: float(player.get(key) or 0)
                for key in ('cash', 'stocks', 'gold', 'emergency_fund', 'loans')}
-    assets = sum(amounts[key] for key in ('cash', 'stocks', 'gold', 'emergency_fund'))
+    portfolio = player.get('investment_portfolio') or {}
+    portfolio_assets = portfolio_value(portfolio)
+    assets = sum(amounts[key] for key in ('cash', 'stocks', 'gold', 'emergency_fund')) + portfolio_assets
     worth = assets - amounts['loans']
-    risk = calculate_risk_score(amounts)
+    risk = calculate_risk_score({**amounts, 'investment_portfolio': portfolio})
     month = int(player['month'])
-    living = LIFESTYLE_COSTS.get(player.get('lifestyle_type'), LIFESTYLE_COSTS['city'])
-    expense = calculate_inflation_adjustment(living['total'], month)
-    if player.get('bike_status'):
-        expense -= living['transport'] * 0.5
+    expense = household_expenses(player, month)['current']
     income, injected, wedding = spouse_score_inputs(player.get('spouse_archetype'))
     result = calculate_financial_health_score(
         net_worth=worth, month=month, emergency_fund=amounts['emergency_fund'],

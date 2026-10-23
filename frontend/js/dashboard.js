@@ -5,6 +5,9 @@
 let currentUser = null;
 let currentMonth = 1;
 let currentCourtship = null;
+let latestPlayerSnapshot = null;
+let latestMonthlyExpense = 88000;
+let latestInvestmentSummary = {};
 
 // ── Auth Helper ──
 async function getAuthHeaders() {
@@ -159,6 +162,9 @@ async function loadDashboard() {
         }
 
         const p = data.player;
+        latestPlayerSnapshot = p;
+        latestMonthlyExpense = Number(data.expenses?.current) || 88000;
+        latestInvestmentSummary = data.investment_summary || {};
         const g = data.game;
 
         // Game ended → celebrate, then leaderboard
@@ -199,6 +205,7 @@ async function loadDashboard() {
             document.getElementById('loanVal').innerText = formatINR(p.loans);
         }
         document.getElementById('pendingVal').innerText = formatINR(p.pending_cash_next_month || 0);
+        renderInvestmentPortfolio(p.investment_portfolio || {}, Number(p.month) || 1, latestInvestmentSummary);
         document.getElementById('lifestyleVal').innerText = p.lifestyle_type === 'city' ? 'City' : 'Outer';
         const expenseSummary = document.getElementById('expenseSummary');
         if (expenseSummary && data.expenses) {
@@ -438,7 +445,10 @@ function _formatRevealedTrait(archetype_id, trait_key) {
 
 // 'allocKeep' is gone: the server now derives kept cash as the residual, so there
 // is nothing for the player to balance and nothing to get wrong.
-const ALLOC_IDS = ['allocStocks', 'allocGold', 'allocEf', 'allocPrepay'];
+const ALLOC_IDS = ['allocStocks', 'allocGold', 'allocEf', 'allocPrepay',
+    'allocBankFd', 'allocTreasuryBill', 'allocLiquidFund', 'allocIndexFund',
+    'allocFlexiCap', 'allocBalancedAdvantage', 'allocPpf', 'allocNps',
+    'allocArbitrageFund', 'allocGoldEtf', 'allocBusinessVenture'];
 
 // The exact server-side value, held as a NUMBER. Never re-read from the rendered
 // string: formatINR uses Math.floor while the backend rounds, so 8117.51 displayed
@@ -466,6 +476,159 @@ function pctColor(v) {
     if (v < -0.0005) return 'var(--accent-rose)';
     return 'var(--text-secondary)';
 }
+
+// ── INVESTMENT PORTFOLIO ─────────────────────────────────────────────────────
+const INVESTMENT_LABELS = {
+    bank_fd_3m: 'Bank Fixed Deposit · 3 months',
+    treasury_bill_6m: 'Treasury Bill · 6 months',
+    liquid_fund: 'Liquid Mutual Fund',
+    arbitrage_fund: 'Arbitrage Mutual Fund',
+    gold_etf: 'Gold ETF',
+    business_venture: 'Small Business / Resale Venture',
+    index_fund: 'Nifty 50 Index Fund',
+    flexi_cap_fund: 'Flexi-cap Equity Fund',
+    balanced_advantage_fund: 'Balanced Advantage Fund',
+    ppf: 'Public Provident Fund (PPF)',
+    nps: 'National Pension System (NPS)'
+};
+const INVESTMENT_LOCKED = new Set(['ppf', 'nps']);
+
+function renderInvestmentPortfolio(portfolio, month, summary = {}) {
+    const valueEl = document.getElementById('investmentPortfolioVal');
+    const listEl = document.getElementById('investmentPortfolioList');
+    if (!valueEl || !listEl) return;
+    let total = 0;
+    const positions = [];
+    for (const [key, lots] of Object.entries(portfolio || {})) {
+        if (!Array.isArray(lots) || !INVESTMENT_LABELS[key]) continue;
+        const value = lots.reduce((sum, lot) => sum + Math.max(0, Number(lot.value) || 0), 0);
+        if (value <= 0.01) continue;
+        total += value;
+        const locked = INVESTMENT_LOCKED.has(key) || lots.some(lot => lot.maturity_month && Number(lot.maturity_month) > month);
+        positions.push({ key, value, locked, lots });
+    }
+    valueEl.innerText = formatINR(total);
+    const summaryEl = document.getElementById('investmentPortfolioSummary');
+    if (summaryEl) {
+        const pnl = Number(summary.profit_loss) || 0;
+        const maturity = summary.next_maturity_month ? `Next maturity: Month ${summary.next_maturity_month}` : 'No term maturity during this game';
+        summaryEl.textContent = `${pnl >= 0 ? 'Gain' : 'Loss'} vs principal: ${formatINR(Math.abs(pnl))} · Estimated current-month product fees: ${formatINR(summary.estimated_monthly_fees || 0)} · ${maturity}`;
+    }
+    if (!positions.length) {
+        listEl.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;">No additional investment products yet. Stocks, gold and the emergency fund remain above.</div>';
+        return;
+    }
+    listEl.innerHTML = positions.map(pos => {
+        const principal = pos.lots.reduce((sum, lot) => sum + (Number(lot.principal) || 0), 0);
+        const delta = pos.value - principal;
+        const tone = delta >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+        const maturities = pos.lots.map(lot => Number(lot.maturity_month)).filter(m => m > month).sort((a, b) => a - b);
+        const monthlyFee = Number(summary.products?.[pos.key]?.monthly_fee) || 0;
+        const lockText = INVESTMENT_LOCKED.has(pos.key) ? 'Locked beyond this game' :
+            (maturities.length ? `Term locked until Month ${maturities[0]}` : 'Available to sell');
+        const sellButton = INVESTMENT_LOCKED.has(pos.key) ?
+            '<span style="font-size:0.72rem;color:var(--text-muted);">LOCKED</span>' :
+            `<button class="sell-btn" onclick="sellInvestment('${pos.key}', ${pos.value.toFixed(2)})">Sell</button>`;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem;border:1px solid var(--border-subtle);border-radius:0.65rem;">
+            <div style="min-width:180px;flex:1;">
+                <div style="font-size:0.88rem;font-weight:650;">${INVESTMENT_LABELS[pos.key]}</div>
+                <div style="font-size:0.72rem;color:var(--text-muted);">${lockText} · principal ${formatINR(principal)} · current monthly fee ${formatINR(value * monthlyFee)}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.95rem;font-weight:750;">${formatINR(pos.value)}</div>
+                <div style="font-size:0.72rem;color:${tone};">${delta >= 0 ? '+' : ''}${formatINR(delta)} simulated gain/loss</div>
+            </div>
+            <div>${sellButton}</div>
+        </div>`;
+    }).join('');
+}
+
+window.sellInvestment = async function(product, maxValue) {
+    const amountText = prompt(`How much of ${INVESTMENT_LABELS[product]} do you want to sell?
+Available: ${formatINR(maxValue)}. Early-exit penalties may apply.`);
+    if (!amountText) return;
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > maxValue + 0.01) {
+        showToast('Enter a valid amount within the available balance.', 'error');
+        return;
+    }
+    try {
+        const headers = await getAuthHeaders();
+        const quoteRes = await fetch(`${API_BASE_URL}/investment-sale-quote`, {
+            method: 'POST', headers, body: JSON.stringify({ product, amount })
+        });
+        const quote = await quoteRes.json();
+        if (!quoteRes.ok) {
+            showToast(quote.error || 'Could not prepare this sale.', 'error');
+            return;
+        }
+        const detail = `${quote.product_name}\nGross sale: ${formatINR(quote.gross_sold)}\nExit fee: ${formatINR(quote.penalty)}\nCash received now: ${formatINR(quote.cash_proceeds)}\n\nProceed with this sale?`;
+        if (!confirm(detail)) return;
+        const retryKey = `mm_sale_${product}_${amount.toFixed(2)}`;
+        let requestId = sessionStorage.getItem(retryKey);
+        if (!requestId) {
+            requestId = window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            sessionStorage.setItem(retryKey, requestId);
+        }
+        const res = await fetch(`${API_BASE_URL}/sell-investment`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ product, amount, request_id: requestId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            sessionStorage.removeItem(retryKey);
+            showToast(data.message, 'success');
+        }
+        else showToast(data.error || 'Investment sale failed', 'error');
+        await loadDashboard();
+    } catch (err) {
+        showToast('Failed to sell investment.', 'error');
+    }
+};
+
+// ── LONG-TERM COMPOUNDING SCENARIOS ──────────────────────────────────────────
+const PROJECTION_RATES = {
+    index_fund: { annual: 0.10, label: '10% hypothetical annual return' },
+    flexi_cap_fund: { annual: 0.12, label: '12% hypothetical annual return' },
+    balanced_advantage_fund: { annual: 0.08, label: '8% hypothetical annual return' },
+    bank_fd_3m: { annual: 0.064, label: '6.4% fixed game assumption' },
+    treasury_bill_6m: { annual: 0.063, label: '6.3% fixed game assumption' },
+    liquid_fund: { annual: 0.054, label: '5.4% hypothetical annual return' },
+    arbitrage_fund: { annual: 0.057, label: '5.7% illustrative game assumption; not guaranteed' },
+    gold_etf: { annual: 0.07, label: '7% hypothetical annual return; gold prices can fall' },
+    ppf: { annual: 0.071, label: '7.1% game assumption; actual PPF rates can change' },
+    nps: { annual: 0.09, label: '9% hypothetical market-linked return' },
+    gold: { annual: 0.07, label: '7% hypothetical annual return' }
+};
+
+function updateLongTermProjection() {
+    const monthlyInput = document.getElementById('projectionMonthly');
+    const productInput = document.getElementById('projectionProduct');
+    const yearsInput = document.getElementById('projectionYears');
+    if (!monthlyInput || !productInput || !yearsInput) return;
+    const monthly = Math.max(0, Number(monthlyInput.value) || 0);
+    const years = Math.max(1, Number(yearsInput.value) || 1);
+    const months = years * 12;
+    const rate = PROJECTION_RATES[productInput.value] || PROJECTION_RATES.index_fund;
+    const monthlyRate = Math.pow(1 + rate.annual, 1 / 12) - 1;
+    const factor = monthlyRate === 0 ? months : (Math.pow(1 + monthlyRate, months) - 1) / monthlyRate;
+    const invested = monthly * months;
+    const future = monthly * factor;
+    document.getElementById('projectionFutureValue').innerText = formatINR(future);
+    document.getElementById('projectionInvested').innerText = formatINR(invested);
+    document.getElementById('projectionGain').innerText = formatINR(future - invested);
+    document.getElementById('projectionAssumption').innerText =
+        `${rate.label}. End-of-month contributions; monthly compounding. Projection excludes taxes, actual product fees and inflation. It is an educational scenario, not a return forecast or promise.`;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    ['projectionMonthly', 'projectionProduct', 'projectionYears'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', updateLongTermProjection);
+        if (el) el.addEventListener('change', updateLongTermProjection);
+    });
+    updateLongTermProjection();
+});
 
 // ── MARKET NEWS ──────────────────────────────────────────────────────────────
 function renderMarketNews(market, month) {
@@ -568,6 +731,106 @@ function recalcAllocation() {
         msg.innerHTML = `<span style="color: var(--text-muted);">Remaining stays as cash: <strong style="color: var(--accent-emerald);">${formatINR(Math.max(0, remainder))}</strong></span>`;
         btn.disabled = false;
     }
+    updateInvestmentTensionPreview();
+}
+
+// A deliberate strategy dilemma: the game rewards more than headline growth.
+// These previews are advisory estimates, not extra scoring rules or predictions.
+const PRODUCT_RISK_WEIGHTS = {
+    bank_fd_3m: 0.03, treasury_bill_6m: 0.02, liquid_fund: 0.06,
+    arbitrage_fund: 0.10, gold_etf: 0.25, index_fund: 1.0,
+    flexi_cap_fund: 1.0, balanced_advantage_fund: 0.55,
+    ppf: 0.02, nps: 0.58, business_venture: 0.85
+};
+const PRODUCT_LOCK_KEYS = new Set(['bank_fd_3m', 'treasury_bill_6m', 'ppf', 'nps', 'business_venture']);
+const PRODUCT_KEYS = Object.keys(PRODUCT_RISK_WEIGHTS);
+function sumLots(lots) {
+    return Array.isArray(lots) ? lots.reduce((sum, lot) => sum + Math.max(0, Number(lot?.value) || 0), 0) : 0;
+}
+function currentPortfolioValue(portfolio) {
+    return Object.values(portfolio || {}).reduce((sum, lots) => sum + sumLots(lots), 0);
+}
+function updateInvestmentTensionPreview() {
+    const riskEl = document.getElementById('allocRiskExposure');
+    const lockedEl = document.getElementById('allocLockedCapital');
+    const cushionEl = document.getElementById('allocAccessibleCushion');
+    const messageEl = document.getElementById('allocTensionMessage');
+    if (!riskEl || !lockedEl || !cushionEl || !messageEl) return;
+
+    const p = latestPlayerSnapshot || {};
+    const portfolio = p.investment_portfolio || {};
+    const month = Number(p.month) || 1;
+    const proposed = Object.fromEntries(PRODUCT_KEYS.map(key => {
+        const idByKey = {
+            bank_fd_3m: 'allocBankFd', treasury_bill_6m: 'allocTreasuryBill', liquid_fund: 'allocLiquidFund',
+            arbitrage_fund: 'allocArbitrageFund', gold_etf: 'allocGoldEtf', index_fund: 'allocIndexFund',
+            flexi_cap_fund: 'allocFlexiCap', balanced_advantage_fund: 'allocBalancedAdvantage',
+            ppf: 'allocPpf', nps: 'allocNps', business_venture: 'allocBusinessVenture'
+        };
+        return [key, Math.max(0, Number(document.getElementById(idByKey[key])?.value) || 0)];
+    }));
+
+    const riskExposure = Math.max(0, Number(p.stocks) || 0) + Math.max(0, Number(document.getElementById('allocStocks')?.value) || 0)
+        + PRODUCT_KEYS.reduce((sum, key) => sum + sumLots(portfolio[key]) * PRODUCT_RISK_WEIGHTS[key]
+            + proposed[key] * PRODUCT_RISK_WEIGHTS[key], 0);
+    const assets = Math.max(1, Math.max(0, Number(p.cash) || allocAvailableRaw)
+        + Math.max(0, Number(p.stocks) || 0) + Math.max(0, Number(p.gold) || 0)
+        + Math.max(0, Number(p.emergency_fund) || 0) + currentPortfolioValue(portfolio));
+    const riskPct = Math.min(1.5, riskExposure / assets) * 100;
+
+    let locked = 0;
+    for (const key of PRODUCT_KEYS) {
+        const lots = Array.isArray(portfolio[key]) ? portfolio[key] : [];
+        for (const lot of lots) {
+            const termLocked = PRODUCT_LOCK_KEYS.has(key) &&
+                (key === 'ppf' || key === 'nps' || (Number(lot.maturity_month) > month));
+            if (termLocked) locked += Math.max(0, Number(lot.value) || 0);
+        }
+        if (PRODUCT_LOCK_KEYS.has(key)) locked += proposed[key];
+    }
+
+    const remainingCash = Math.max(0, allocAvailableRaw - allocTotal());
+    const existingLiquid = sumLots(portfolio.liquid_fund) + 0.9975 * sumLots(portfolio.arbitrage_fund);
+    const accessible = remainingCash + Math.max(0, Number(p.emergency_fund) || 0)
+        + Math.max(0, Number(document.getElementById('allocEf')?.value) || 0)
+        + existingLiquid + Math.max(0, proposed.liquid_fund) + 0.9975 * Math.max(0, proposed.arbitrage_fund);
+    const expense = Math.max(1, latestMonthlyExpense || 88000);
+    const cushionMonths = accessible / expense;
+    const lockedPct = locked / assets * 100;
+
+    riskEl.textContent = `${formatINR(riskExposure)} (${riskPct.toFixed(0)}%)`;
+    lockedEl.textContent = `${formatINR(locked)} (${lockedPct.toFixed(0)}%)`;
+    cushionEl.textContent = `${formatINR(accessible)} (${cushionMonths.toFixed(1)} months)`;
+
+    const proposedValue = Object.values(proposed).reduce((sum, value) => sum + value, 0);
+    const currentValue = currentPortfolioValue(portfolio);
+    const pnl = Number(latestInvestmentSummary.profit_loss) || 0;
+    const valueEl = document.getElementById('allocPortfolioValue');
+    if (valueEl) valueEl.textContent = `${formatINR(currentValue + proposedValue)} · ${pnl >= 0 ? '+' : '−'}${formatINR(Math.abs(pnl))} vs principal`;
+    const feeRates = Object.fromEntries(PRODUCT_KEYS.map(key => [key, Number(latestInvestmentSummary.products?.[key]?.monthly_fee) || 0]));
+    const feeEstimate = PRODUCT_KEYS.reduce((sum, key) => sum + sumLots(portfolio[key]) * feeRates[key] + proposed[key] * feeRates[key], 0);
+    const feeEl = document.getElementById('allocFeesEstimate');
+    if (feeEl) feeEl.textContent = formatINR(feeEstimate);
+    const nextDates = [];
+    for (const key of PRODUCT_KEYS) {
+        for (const lot of (Array.isArray(portfolio[key]) ? portfolio[key] : [])) {
+            const maturity = Number(lot.maturity_month);
+            if (maturity > month) nextDates.push(maturity);
+        }
+        const term = Number(latestInvestmentSummary.products?.[key]?.maturity_months);
+        if (proposed[key] > 0 && key !== 'ppf' && key !== 'nps' && term > 0) nextDates.push(month + term);
+    }
+    const nextEl = document.getElementById('allocNextMaturity');
+    if (nextEl) nextEl.textContent = nextDates.length ? `Month ${Math.min(...nextDates)}` : 'None in 12 months';
+
+    const warnings = [];
+    if (cushionMonths < 0.75) warnings.push(`Low liquidity: about ${formatINR(Math.max(0, expense - accessible))} short of one month of current household expenses. A surprise before term investments mature could trigger an expensive automatic loan.`);
+    else if (cushionMonths < 1.5) warnings.push('Thin liquidity: you have less than 1.5 months of current household expenses in cash-like resources.');
+    if (lockedPct > 30) warnings.push('High lock-in: a large share of assets is in term or retirement products. You may need to pay an exit cost—or be unable to withdraw—when cash is urgently needed.');
+    if (riskPct > 45) warnings.push('High risk exposure: a market/business downturn may increase the net-worth upside/downside swing and weaken the risk-protection component of your score.');
+    if (riskPct < 10) warnings.push('Low market exposure may protect stability, but may miss some upside in a strong market. The game does not guarantee that taking more risk will pay off.');
+    if (!warnings.length) warnings.push('No allocation maximizes growth, liquidity and risk protection together. Your decision trades one advantage against another; the actual shared market result arrives after allocation.');
+    messageEl.textContent = warnings.join(' ');
 }
 
 // ── LOANS ────────────────────────────────────────────────────────────────────
@@ -666,6 +929,17 @@ async function submitAllocation() {
         stocks: parseFloat(document.getElementById('allocStocks').value) || 0,
         gold: parseFloat(document.getElementById('allocGold').value) || 0,
         emergency_fund: parseFloat(document.getElementById('allocEf').value) || 0,
+        bank_fd_3m: parseFloat(document.getElementById('allocBankFd').value) || 0,
+        treasury_bill_6m: parseFloat(document.getElementById('allocTreasuryBill').value) || 0,
+        liquid_fund: parseFloat(document.getElementById('allocLiquidFund').value) || 0,
+        arbitrage_fund: parseFloat(document.getElementById('allocArbitrageFund').value) || 0,
+        gold_etf: parseFloat(document.getElementById('allocGoldEtf').value) || 0,
+        business_venture: parseFloat(document.getElementById('allocBusinessVenture').value) || 0,
+        index_fund: parseFloat(document.getElementById('allocIndexFund').value) || 0,
+        flexi_cap_fund: parseFloat(document.getElementById('allocFlexiCap').value) || 0,
+        balanced_advantage_fund: parseFloat(document.getElementById('allocBalancedAdvantage').value) || 0,
+        ppf: parseFloat(document.getElementById('allocPpf').value) || 0,
+        nps: parseFloat(document.getElementById('allocNps').value) || 0,
         loan_prepay: parseFloat(document.getElementById('allocPrepay').value) || 0
     };
     try {
@@ -764,13 +1038,38 @@ async function setInsurance(plan) {
 document.addEventListener('DOMContentLoaded', () => {
     const bar = document.getElementById('tabBar');
     if (!bar) return;
-    bar.querySelectorAll('.tab-btn').forEach(btn => {
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-label', 'Dashboard sections');
+    const tabs = Array.from(bar.querySelectorAll('.tab-btn'));
+    tabs.forEach((btn, index) => {
+        const panel = document.getElementById('tab-' + btn.dataset.tab);
+        btn.id = 'nav-' + btn.dataset.tab;
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-controls', panel.id);
+        btn.setAttribute('aria-selected', String(btn.classList.contains('active')));
+        btn.tabIndex = btn.classList.contains('active') ? 0 : -1;
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', btn.id);
+        panel.tabIndex = 0;
         btn.addEventListener('click', () => {
-            bar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach(pn => pn.classList.remove('active'));
-            btn.classList.add('active');
-            const panel = document.getElementById('tab-' + btn.dataset.tab);
-            if (panel) panel.classList.add('active');
+            tabs.forEach(b => {
+                const selected = b === btn;
+                b.classList.toggle('active', selected);
+                b.setAttribute('aria-selected', String(selected));
+                b.tabIndex = selected ? 0 : -1;
+            });
+            document.querySelectorAll('.tab-panel').forEach(pn => pn.classList.toggle('active', pn === panel));
+        });
+        btn.addEventListener('keydown', event => {
+            let target;
+            if (event.key === 'ArrowRight') target = (index + 1) % tabs.length;
+            if (event.key === 'ArrowLeft') target = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === 'Home') target = 0;
+            if (event.key === 'End') target = tabs.length - 1;
+            if (target === undefined) return;
+            event.preventDefault();
+            tabs[target].click();
+            tabs[target].focus();
         });
     });
 });

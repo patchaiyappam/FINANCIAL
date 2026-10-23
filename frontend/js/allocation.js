@@ -145,6 +145,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             stocks: document.getElementById('valStocks').value,
             gold: document.getElementById('valGold').value,
             emergency_fund: document.getElementById('valEmergency').value,
+            bank_fd_3m: document.getElementById('valBankFd').value,
+            treasury_bill_6m: document.getElementById('valTreasuryBill').value,
+            liquid_fund: document.getElementById('valLiquidFund').value,
+            arbitrage_fund: document.getElementById('valArbitrageFund').value,
+            gold_etf: document.getElementById('valGoldEtf').value,
+            business_venture: document.getElementById('valBusinessVenture').value,
+            index_fund: document.getElementById('valIndexFund').value,
+            flexi_cap_fund: document.getElementById('valFlexiCap').value,
+            balanced_advantage_fund: document.getElementById('valBalancedAdvantage').value,
+            ppf: document.getElementById('valPpf').value,
+            nps: document.getElementById('valNps').value,
             misc: document.getElementById('valMisc').value
         };
 

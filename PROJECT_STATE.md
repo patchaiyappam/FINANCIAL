@@ -1,24 +1,33 @@
 # Money Master - Current Project State
 
-Updated 2026-09-08 after controlled implementation.
-This replaces the obsolete July handoff; old RC/audit documents remain historical.
+Base state documented 2026-09-08 after controlled implementation. Strategic
+investment update: 2026-10-20. Old RC/audit documents remain historical.
 
 ## Scope and repository
 
-The work began on a clean main branch. Changes are uncommitted and are limited
-to implementation consistency, verification and current documentation.
+The supplied starting-point note references clean `main` on 2026-09-08. The
+workspace inspected for this implementation already contained uncommitted
+workflow-audit changes; they were retained. Changes remain uncommitted.
 No live database, Render deployment or Netlify deployment was changed or inspected.
 
 The existing concept is preserved: 12 admin-paced months, recurring allocation,
 insurance, loans, Month 4 marriage, Month 6 festival, spouse negotiations and
 Financial Health Score. No score weights or spouse archetype economics changed.
 
+The 2026-10-20 investment update adds eleven simulated products to the existing
+allocation/monthly processing flow. It uses portfolio lots in player_state,
+shared monthly market scenarios, modeled fees, early exits and maturity. The
+Horizon Lab remains outside competition scoring. The current workspace already
+had uncommitted workflow-audit changes when this update began; they were retained.
+No hosted database, deployment, or environment file was changed.
+
 ## Database
 
 Use supabase.sql as the canonical installation/upgrade path. It now includes all
-runtime tables, household/insurance/loan fields, event categories and transaction
-functions. The file is repeatable and transactional. Existing rows are retained.
-Historical migrations must not be applied after it.
+runtime tables, household/insurance/loan fields, event categories, investment
+portfolio storage and transaction functions. The file is repeatable and
+transactional. Existing rows are retained. Do not apply the standalone investment
+migration from the supplied archive or replay historical migrations after it.
 
 Fresh installation, repeat installation, rollback behavior, runtime table/RPC
 coverage and monthly state persistence have local PostgreSQL test coverage.
@@ -41,6 +50,13 @@ The dependency map is in IMPLEMENTATION_PLAN.md.
   backend values; the lifestyle-selector callback scope is repaired.
 - Event entry preserves its category, with category selection in the admin form.
 - Zero spouse satisfaction is retained instead of resetting to the default.
+- Investment purchases join the current monthly allocation transaction; sale
+  snapshots use row locking, compare-and-swap and a required idempotency key.
+- Shared scenarios drive product returns; fees and maturities run in monthly
+  processing. Month 12 next-month asset sales are blocked, while investment exits
+  are immediate and quoted before confirmation.
+- Current dashboard and leaderboard scores recalculate from the latest portfolio
+  snapshot, so investment mutations appear before the next monthly roll.
 
 Optional choices intentionally remain hidden. Backend functionality is preserved.
 
@@ -71,3 +87,4 @@ Weights and event content were left unchanged.
 4. Deploy only after those checks; live version and data are currently unverified.
 
 Detailed results, per-file changes and the verdict are in IMPLEMENTATION_REPORT.md.
+Product formulas and limits are in INVESTMENT_RULES.md.

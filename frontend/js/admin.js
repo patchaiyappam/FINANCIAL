@@ -479,6 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const rows = roster.map(p => {
                 const badge = p.played
                     ? '<span style="color:var(--accent-emerald);">&#9679; Playing</span>'
+                    : p.absent ? '<span style="color:var(--text-muted);">Absent this game</span>'
                     : '<span style="color:var(--accent-amber);">&#9676; Waiting</span>';
                 return `<tr>
                     <td style="padding:0.5rem; font-weight:600;">${escapeHtml(p.username)}</td>

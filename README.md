@@ -13,8 +13,17 @@ Economic constants are authoritative in `backend/models/constants.py`.
 
 Month 1 creates the initial allocation and locks the turn. For months 2-12,
 players review the processed month, make decisions, allocate available cash
-(including choosing to retain cash), and lock their turn. The administrator
-cannot advance until every player is ready. Registered non-admin users who have
+(including choosing to retain cash), and lock their turn. Investment choices now
+include bank FD, Treasury bill, liquid and arbitrage funds, index and flexi-cap
+funds, balanced advantage, Gold ETF, PPF, NPS, and a high-risk business/resale
+venture alongside the original stocks, gold, emergency fund and loans. Shared
+market scenarios drive returns; game fees, lockups and exits are enforced by the
+backend. The dashboard previews liquidity, risk exposure, locked capital, current
+fees and maturity, and quotes exact sale fees before confirmation. Product rules
+and assumptions are documented in [INVESTMENT_RULES.md](INVESTMENT_RULES.md).
+The Investment Horizon Lab is a separate illustrative 1-20 year SIP projection;
+it does not extend the 12-month leaderboard.
+The administrator cannot advance until every player is ready. Registered non-admin users who have
 not completed their initial allocation are counted as unready.
 
 Marriage is available in Month 4 when the administrator opens the round.
@@ -36,10 +45,11 @@ stay hidden in the player interface, following the organizer's recorded
 3. Deduct inflation-adjusted living costs, bike savings and household modifiers.
 4. Deduct the selected insurance premium.
 5. Apply the common market scenario and emergency-fund interest.
-6. Apply events and eligible insurance reimbursements.
-7. Deduct bike EMI and amortized loan repayments.
-8. Cover deficits from the emergency fund, then an automatic loan if needed.
-9. Persist all state, loan changes and logs; calculate Financial Health Score.
+6. Apply investment-product returns and fees; matured terms return to cash.
+7. Apply events and eligible insurance reimbursements.
+8. Deduct bike EMI and amortized loan repayments.
+9. Cover deficits from the emergency fund, then an automatic loan if needed.
+10. Persist all state, loan changes and logs; calculate Financial Health Score.
 
 Base living expenses are Rs88,000 for City and Rs82,000 for Outer.
 Inflation starts in Month 4. Emergency funds earn 0.5% monthly. Voluntary loans
@@ -48,22 +58,26 @@ override automatic markets. Auto events and auto markets default to off.
 
 At the end of Month 12, everyone locks before the final advancement command.
 The backend refreshes scores from the final portfolios and ends the game
-atomically. The separate manual End Game control remains available.
+atomically. Asset sales credited next month are blocked in Month 12; investment
+product sales pay immediately under their stated exit rules. The separate manual
+End Game control remains available.
 
 ## Database installation and upgrade
 
-`supabase.sql` is the authoritative schema path for this version. Run it as the
-database owner in the Supabase SQL Editor, outside an active game. It creates
-missing runtime objects and replaces the current transaction functions in one
-transaction. Re-running it preserves existing player and authored-content rows.
-It is tested on an empty database and on repeat installation.
+`supabase.sql` is the single authoritative, repeatable schema installation and
+upgrade path. It includes investment portfolio storage, transaction functions,
+grants and policies. Install it as the database owner in a staging copy first.
+Do not apply the standalone investment migration contained in the supplied
+archive; it replaces older transaction functions. Local tests cover
+fresh installation and repeat installation; this work did not inspect or change
+hosted data.
 
 Use a backup and a staging copy before applying to a live installation with
 custom changes. This work has not inspected or upgraded the live database.
 
-Do not replay historical migration files after the canonical file. Their older
-function definitions can undo current repairs. They remain as historical records,
-not an alternative installation sequence.
+Do not replay historical migration or repair files after this upgrade. Their older
+function definitions can restore obsolete transaction signatures. They remain as
+historical records, not an alternative installation sequence.
 
 After installation, create an admin account and add its auth user UUID to
 `public.admins`. The signup trigger maintains `public.users`. Financial writes
@@ -114,7 +128,8 @@ PGlite runs PostgreSQL in WebAssembly; it is not a substitute for native
 multi-client concurrency or deployed Supabase/Auth/PostgREST verification.
 Native concurrency tests require `pgserver` and `psycopg` on a supported host.
 
-Run the six-strategy comparison with:
+Run the deterministic baseline, event-pack and four investment-strategy
+12-month comparisons with:
 
 ```powershell
 python backend/tools/strategy_simulation.py --output .test-runtime/strategies.json

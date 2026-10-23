@@ -2,6 +2,7 @@
 # PLAYER ROUTES — All player-facing API endpoints
 # =============================================================================
 
+import math
 from flask import Blueprint, request, jsonify
 from supabase_client import supabase
 from services.auth_service import get_user_id
@@ -14,6 +15,7 @@ from services.game_service import (
 )
 from models.constants import (
     INITIAL_BUDGET, SELL_PENALTY_RATE, TRUST_HELP_AMOUNTS, TRUST_SCORE_GAIN,
+    BIKE_DOWN_PAYMENT,
     VALID_RELATIVE_TYPES,
     LIFESTYLE_COSTS, ARCHETYPES, WEDDING_COST, SPOUSE_BASE_EXPENSE, MARRIAGE_MONTH,
     MONTHLY_INCOME, LOAN_INTEREST_RATE, LOAN_TERM_OPTIONS, LOAN_MIN_AMOUNT,
@@ -29,8 +31,20 @@ from engine.scoring import calculate_financial_health_score
 from engine.market_engine import (
     calculate_risk_score, resolve_market_scenario, calculate_inflation_adjustment
 )
+from engine.investment_engine import (
+    INVESTMENT_PRODUCTS, add_investment_lot, empty_portfolio, normalize_portfolio,
+    portfolio_value, portfolio_locked_value, portfolio_risk_exposure, sell_investment
+)
 
 player_bp = Blueprint('player', __name__)
+
+
+def _finite_amount(data, key, default=0.0):
+    """Parse a currency amount and reject NaN, infinity and sub-cent values."""
+    value = float(data.get(key, default) or 0)
+    if not math.isfinite(value) or value < 0 or abs(value * 100 - round(value * 100)) > 1e-7:
+        raise ValueError(f"{key} must be a finite nonnegative amount with at most two decimals.")
+    return round(value, 2)
 
 
 # ──────────────────────────────────────────────
@@ -72,10 +86,13 @@ def allocate_month1():
         return jsonify({"error": "You have already allocated for this game."}), 400
 
     data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "Allocation data must be an object."}), 400
     try:
         fields = ['rent', 'transport', 'food', 'family', 'stocks',
-                   'gold', 'emergency_fund', 'misc', 'bike_down_payment']
-        total = sum(float(data.get(f, 0)) for f in fields)
+                   'gold', 'emergency_fund', 'misc', 'bike_down_payment', *INVESTMENT_PRODUCTS.keys()]
+        amounts = {field: _finite_amount(data, field) for field in fields}
+        total = sum(amounts.values())
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid numerical data."}), 400
 
@@ -84,7 +101,14 @@ def allocate_month1():
             "error": f"Must allocate exactly ₹{INITIAL_BUDGET:,}. Current total: ₹{total:,.0f}"
         }), 400
 
-    bike_status = bool(data.get('bike_status', False))
+    bike_status = data.get('bike_status', False)
+    if not isinstance(bike_status, bool):
+        return jsonify({"error": "bike_status must be true or false."}), 400
+    down_payment = amounts['bike_down_payment']
+    if bike_status and down_payment != BIKE_DOWN_PAYMENT:
+        return jsonify({"error": f"A bike requires the full ₹{BIKE_DOWN_PAYMENT:,} down payment."}), 400
+    if not bike_status and down_payment != 0:
+        return jsonify({"error": "Set the bike down payment to zero when you do not buy a bike."}), 400
     lifestyle = data.get('lifestyle_type', 'city')
 
     if lifestyle not in ('city', 'outer'):
@@ -93,6 +117,10 @@ def allocate_month1():
     stocks = float(data.get('stocks', 0))
     gold_val = float(data.get('gold', 0))
     emergency = float(data.get('emergency_fund', 0))
+    try:
+        investment_allocations = {key: amounts[key] for key in INVESTMENT_PRODUCTS}
+    except (ValueError, TypeError):
+        return jsonify({"error": "Investment allocation values must be numbers."}), 400
 
     # Money conservation: everything the player didn't invest and didn't spend
     # on the bike stays as starting CASH. Previously only 'misc' was kept and
@@ -100,7 +128,7 @@ def allocate_month1():
     # worth was hard-coded to the full budget), which made net worth appear to
     # crash between month 1 and month 2. Recurring living costs are charged from
     # month 2 onward by the monthly processor, so month-1 living isn't lost here.
-    bike_down_payment = float(data.get('bike_down_payment', 0))
+    bike_down_payment = down_payment
     cash = (float(data.get('misc', 0)) + float(data.get('rent', 0))
             + float(data.get('transport', 0)) + float(data.get('food', 0))
             + float(data.get('family', 0)))
@@ -113,22 +141,28 @@ def allocate_month1():
         bike_down_payment = 0
 
     # Validate no negative values
-    if any(v < 0 for v in [cash, stocks, gold_val, emergency, bike_down_payment]):
+    if any(v < 0 for v in [cash, stocks, gold_val, emergency, bike_down_payment, *investment_allocations.values()]):
         return jsonify({"error": "Allocation values cannot be negative."}), 400
 
-    # Honest month-1 net worth = assets actually held (no loans yet). The bike
-    # down payment is spent, so it is not counted as an asset.
-    initial_net_worth = cash + stocks + gold_val + emergency
+    investment_portfolio = empty_portfolio()
+    for product_key, amount in investment_allocations.items():
+        if amount > 0:
+            investment_portfolio = add_investment_lot(investment_portfolio, product_key, amount, 1)
+    other_investments = portfolio_value(investment_portfolio)
+
+    # Honest month-1 net worth = liquid assets + all investment holdings - liabilities.
+    # The bike down payment is spent, so it is not counted as an asset.
+    initial_net_worth = cash + stocks + gold_val + emergency + other_investments
 
     # Initial risk + Financial Health Score (ADR-008) — deterministic from allocation
     initial_state = {"cash": cash, "stocks": stocks, "gold": gold_val,
-                     "emergency_fund": emergency, "loans": 0}
+                     "emergency_fund": emergency, "investment_portfolio": investment_portfolio, "loans": 0}
     initial_risk = calculate_risk_score(initial_state)
     monthly_expense = LIFESTYLE_COSTS.get(lifestyle, LIFESTYLE_COSTS['city'])['total']
     initial_score = calculate_financial_health_score(
         net_worth=initial_net_worth, month=1,
         emergency_fund=emergency, monthly_expense=monthly_expense,
-        loans=0, total_assets=cash + stocks + gold_val + emergency,
+        loans=0, total_assets=cash + stocks + gold_val + emergency + other_investments,
         risk_score=initial_risk, discipline_avg=100
     )
 
@@ -139,6 +173,7 @@ def allocate_month1():
         "stocks": stocks,
         "gold": gold_val,
         "emergency_fund": emergency,
+        "investment_portfolio": investment_portfolio,
         "lifestyle_type": lifestyle,
         "bike_status": bike_status,
         "bike_lock_in_months": 3 if bike_status else 0,
@@ -178,10 +213,35 @@ def get_dashboard():
         return jsonify({"error": "No player state found"}), 404
 
     player['loans'] = get_total_loans(user_id)
+    # Derived values are refreshed from the same authoritative snapshot scorer
+    # used by the final leaderboard, so purchases, sales and other live actions
+    # are reflected before the next monthly roll.
+    from engine.scoring import score_player_snapshot
+    player.update(score_player_snapshot(player))
     game = get_game_state()
     choices = get_optional_choices(player['month'])
     trust_scores = get_trust_scores(user_id)
     event_logs = get_all_event_logs(user_id)
+    portfolio = normalize_portfolio(player.get('investment_portfolio') or {})
+    portfolio_total = portfolio_value(portfolio)
+    portfolio_principal = sum(float(lot['principal']) for lots in portfolio.values() for lot in lots)
+    monthly_fee_estimate = sum(
+        float(lot['value']) * float(INVESTMENT_PRODUCTS[key].get('monthly_fee', 0))
+        for key, lots in portfolio.items() for lot in lots
+    )
+    future_maturities = [int(lot['maturity_month']) for key, lots in portfolio.items()
+                         if key not in ('ppf', 'nps') for lot in lots
+                         if lot.get('maturity_month') is not None and int(lot['maturity_month']) > int(player['month'])]
+    investment_summary = {
+        'value': portfolio_total,
+        'principal': round(portfolio_principal, 2),
+        'profit_loss': round(portfolio_total - portfolio_principal, 2),
+        'estimated_monthly_fees': round(monthly_fee_estimate, 2),
+        'locked_value': portfolio_locked_value(portfolio, int(player['month'])),
+        'risk_weighted_exposure': portfolio_risk_exposure(portfolio),
+        'next_maturity_month': min(future_maturities) if future_maturities else None,
+        'products': INVESTMENT_PRODUCTS,
+    }
 
     # ── Courtship & Spouse metadata ──
     revealed_rows = supabase.table('player_spouse_reveals').select('*').eq('user_id', user_id).execute().data or []
@@ -266,6 +326,7 @@ def get_dashboard():
             "current": player.get('insurance_plan') or 'none',
             "plans": [{"id": k, **v} for k, v in INSURANCE_PLANS.items()]
         },
+        "investment_summary": investment_summary,
         "negotiation": _dashboard_negotiation(user_id, player, game)
     })
 
@@ -322,15 +383,18 @@ def allocate_month():
         return jsonify({"error": "You have no cash available to allocate."}), 400
 
     data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Allocation data must be an object."}), 400
     try:
-        to_stocks = float(data.get('stocks', 0))
-        to_gold = float(data.get('gold', 0))
-        to_ef = float(data.get('emergency_fund', 0))
-        to_prepay = float(data.get('loan_prepay', 0))
+        to_stocks = _finite_amount(data, 'stocks')
+        to_gold = _finite_amount(data, 'gold')
+        to_ef = _finite_amount(data, 'emergency_fund')
+        to_prepay = _finite_amount(data, 'loan_prepay')
+        investment_allocations = {key: _finite_amount(data, key) for key in INVESTMENT_PRODUCTS}
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid numerical data."}), 400
 
-    buckets = [to_stocks, to_gold, to_ef, to_prepay]
+    buckets = [to_stocks, to_gold, to_ef, to_prepay, *investment_allocations.values()]
     if any(v < 0 for v in buckets):
         return jsonify({"error": "Allocation values cannot be negative."}), 400
 
@@ -348,12 +412,18 @@ def allocate_month():
     # Deriving the remainder here removes the whole class of bug AND the rule the
     # player had to satisfy.
     invested = sum(buckets)
-    if invested > available + 1.0:
+    updated_portfolio = normalize_portfolio(player.get('investment_portfolio') or {})
+    for product_key, amount in investment_allocations.items():
+        if amount > 0:
+            updated_portfolio = add_investment_lot(updated_portfolio, product_key, amount, month)
+    available = round(available, 2)
+    invested = round(invested, 2)
+    if invested > available:
         return jsonify({
             "error": f"You allocated ₹{invested:,.0f} but only have ₹{available:,.0f} available."
         }), 400
 
-    keep_cash = max(0.0, available - invested)
+    keep_cash = round(available - invested, 2)
 
     # ── Loan prepayment: cannot prepay more than is outstanding ──
     active_loans = get_active_loans(user_id)
@@ -388,14 +458,16 @@ def allocate_month():
     try:
         apply_player_txn(
             user_id, month, action_key=allocation_key(month),
-            require_cash=max(0.0, round(invested, 2) - 1.0),
+            require_cash=invested,
             deltas={
-                "cash": -round(invested, 2),
+                "cash": -invested,
                 "stocks": round(to_stocks, 2),
                 "gold": round(to_gold, 2),
                 "emergency_fund": round(to_ef, 2),
                 "loans": -round(to_prepay, 2),
             },
+            sets={"investment_portfolio": updated_portfolio},
+            recompute_networth=True,
             loan_updates=loan_writes,
         )
     except PlayerTxnError as e:
@@ -419,6 +491,7 @@ def allocate_month():
             "to_stocks": round(to_stocks, 2),
             "to_gold": round(to_gold, 2),
             "to_emergency_fund": round(to_ef, 2),
+            "investment_allocations": {key: round(value, 2) for key, value in investment_allocations.items() if value > 0},
             "to_loan_prepay": round(to_prepay, 2),
             "kept_as_cash": round(keep_cash, 2)
         }).execute()
@@ -429,6 +502,7 @@ def allocate_month():
         "message": f"Month {month} allocation confirmed.",
         "allocated": {
             "stocks": to_stocks, "gold": to_gold, "emergency_fund": to_ef,
+            "investments": {key: value for key, value in investment_allocations.items() if value > 0},
             "loan_prepay": to_prepay, "kept_as_cash": keep_cash
         }
     })
@@ -490,8 +564,10 @@ def take_loan():
 
     month = int(player['month'])
     data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Loan request must be an object."}), 400
     try:
-        amount = float(data.get('amount', 0))
+        amount = _finite_amount(data, 'amount')
         term = int(data.get('term_months', 6))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid loan request."}), 400
@@ -570,7 +646,9 @@ def loan_quote():
 
     data = request.json or {}
     try:
-        amount = float(data.get('amount', 0))
+        if not isinstance(data, dict):
+            return jsonify({"error": "Quote request must be an object."}), 400
+        amount = _finite_amount(data, 'amount')
         term = int(data.get('term_months', 6))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid request."}), 400
@@ -903,15 +981,25 @@ def sell_asset():
     if gerr:
         return jsonify({"error": gerr[0]}), gerr[1]
 
-    data = request.json
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Sale details must be an object."}), 400
     asset_type = data.get('asset')
-    amount_to_sell = float(data.get('amount', 0))
+    try:
+        amount_to_sell = _finite_amount(data, 'amount')
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
     if asset_type not in ('stocks', 'gold', 'emergency_fund'):
         return jsonify({"error": "Invalid asset type. Must be stocks, gold, or emergency_fund."}), 400
 
     if amount_to_sell <= 0:
         return jsonify({"error": "Amount must be positive."}), 400
+
+    # Deferred sale proceeds cannot be credited in Month 13. Keep this route
+    # guard for a clear response; sell_asset_atomic repeats the check under lock.
+    if int(player.get('month', 0)) >= 12:
+        return jsonify({"error": "Asset sales are unavailable in the final month."}), 400
 
     current_val = float(player.get(asset_type, 0))
     if amount_to_sell > current_val:
@@ -947,6 +1035,91 @@ def sell_asset():
         "message": f"Sold ₹{amount_to_sell:,.0f} of {asset_type}. After {SELL_PENALTY_RATE*100:.0f}% penalty, ₹{receive_val:,.0f} will be credited next month.",
         "penalty": penalty,
         "credited_next_month": receive_val
+    })
+
+
+# ──────────────────────────────────────────────
+# SELL A SIMULATED INVESTMENT PRODUCT
+# ──────────────────────────────────────────────
+@player_bp.route('/investment-sale-quote', methods=['POST'])
+def investment_sale_quote():
+    user_id = get_user_id(request)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    player, game, err = require_playable(user_id)
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Sale details must be an object."}), 400
+    product_key = str(data.get('product', ''))
+    try:
+        amount = _finite_amount(data, 'amount')
+        result = sell_investment(player.get('investment_portfolio') or {}, product_key,
+                                 amount, int(player.get('month', 1)))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({
+        "product": product_key,
+        "product_name": INVESTMENT_PRODUCTS[product_key]['name'],
+        "gross_sold": result['gross_sold'],
+        "penalty": result['penalty'],
+        "cash_proceeds": result['cash_proceeds'],
+        "remaining_value": portfolio_value(result['portfolio']),
+    })
+
+
+@player_bp.route('/sell-investment', methods=['POST'])
+def sell_investment_asset():
+    user_id = get_user_id(request)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    player, game, err = require_playable(user_id)
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Sale details must be an object."}), 400
+    product_key = str(data.get('product', ''))
+    try:
+        amount = _finite_amount(data, 'amount')
+        request_id = str(data.get('request_id', '')).strip()
+        if not request_id or len(request_id) > 64 or not request_id.replace('-', '').replace('_', '').isalnum():
+            raise ValueError("A valid sale request ID is required.")
+        result = sell_investment(
+            player.get('investment_portfolio') or {}, product_key,
+            amount, int(player.get('month', 1))
+        )
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # Compare-and-swap protects against two concurrent requests overwriting each
+    # other's portfolio changes. The DB helper checks the expected JSON snapshot
+    # inside the same row-locked transaction.
+    try:
+        updated = apply_player_txn(
+            user_id, int(player['month']),
+            action_key=f"sell_investment:{request_id}",
+            deltas={"cash": result['cash_proceeds']},
+            sets={"investment_portfolio": result['portfolio']},
+            recompute_networth=True,
+            expected_investment_portfolio=player.get('investment_portfolio') or {},
+        )
+    except PlayerTxnError as exc:
+        if exc.kind == 'DUPLICATE_ACTION':
+            return jsonify({"error": "This sale request was already processed."}), 409
+        if exc.kind == 'INSUFFICIENT_CASH':
+            return jsonify({"error": "Portfolio changed. Refresh and try again."}), 409
+        return jsonify({"error": "Investment sale could not be processed."}), 400
+    except Exception as exc:
+        if 'PORTFOLIO_CHANGED' in str(exc).upper():
+            return jsonify({"error": "Portfolio changed. Refresh and try again."}), 409
+        return jsonify({"error": f"Investment sale failed: {exc}"}), 500
+
+    return jsonify({
+        "message": f"Sold {INVESTMENT_PRODUCTS[product_key]['name']} for ₹{result['cash_proceeds']:,.0f} net.",
+        "gross_sold": result['gross_sold'], "penalty": result['penalty'],
+        "cash_proceeds": result['cash_proceeds'], "state": updated
     })
 
 
@@ -1217,11 +1390,14 @@ def courtship_marry():
     proj_gold = gold + arc['gold']
     proj_ef = ef + arc['ef']
     proj_loans = loans + arc['loan']
-    net_worth = proj_cash + proj_stocks + proj_gold + proj_ef - proj_loans
+    existing_investment_assets = portfolio_value(player.get('investment_portfolio') or {})
+    net_worth = proj_cash + proj_stocks + proj_gold + proj_ef + existing_investment_assets - proj_loans
 
     risk_level = calculate_risk_score({
         'cash': proj_cash, 'stocks': proj_stocks, 'gold': proj_gold,
-        'emergency_fund': proj_ef, 'loans': proj_loans
+        'emergency_fund': proj_ef,
+        'investment_portfolio': player.get('investment_portfolio') or {},
+        'loans': proj_loans
     })
 
     # ── D-07: score against the real household living expense (inflation-adjusted
@@ -1238,7 +1414,7 @@ def courtship_marry():
     score_result = calculate_financial_health_score(
         net_worth=net_worth, month=MARRIAGE_MONTH,
         emergency_fund=proj_ef, monthly_expense=adjusted_living,
-        loans=proj_loans, total_assets=proj_cash + proj_stocks + proj_gold + proj_ef,
+        loans=proj_loans, total_assets=proj_cash + proj_stocks + proj_gold + proj_ef + existing_investment_assets,
         risk_score=risk_level, discipline_avg=discipline_avg,
         spouse_income=spouse_income,
         spouse_assets=spouse_assets, wedding_cost=WEDDING_COST

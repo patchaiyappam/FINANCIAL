@@ -135,14 +135,14 @@ def get_leaderboard(limit: int = 50) -> list:
     Net worth is the tiebreaker and remains visible, but ranking rewards
     balanced financial management, not just wealth accumulation.
     """
-    res = (supabase.table('player_state')
-           .select('user_id, financial_health_score, net_worth, trust_score, '
-                   'risk_level, discipline_score, month, users(name)')
-           .order('financial_health_score', desc=True)
-           .order('net_worth', desc=True)
-           .limit(limit)
-           .execute())
-    return res.data if res.data else []
+    from engine.scoring import score_player_snapshot
+    res = supabase.table('player_state').select('*, users(name)').execute()
+    rows = res.data or []
+    for row in rows:
+        row.update(score_player_snapshot(row))
+    rows.sort(key=lambda row: (float(row.get('financial_health_score') or 0),
+                               float(row.get('net_worth') or 0)), reverse=True)
+    return rows[:limit]
 
 
 # ──── Fair Probability Engine ────
@@ -302,7 +302,8 @@ def apply_player_txn(user_id: str, month: int, *, action_key: str | None = None,
                      sets: dict | None = None, clamp_satisfaction: bool = False,
                      recompute_networth: bool = False,
                      loan_inserts: list | None = None,
-                     loan_updates: list | None = None) -> dict:
+                     loan_updates: list | None = None,
+                     expected_investment_portfolio: dict | None = None) -> dict:
     """
     Apply an atomic, row-serialised mutation to a player. Returns the fresh
     player_state row (dict). Raises PlayerTxnError(kind) for the three expected
@@ -321,6 +322,7 @@ def apply_player_txn(user_id: str, month: int, *, action_key: str | None = None,
             'p_recompute_networth': bool(recompute_networth),
             'p_loan_inserts': loan_inserts or [],
             'p_loan_updates': loan_updates or [],
+            'p_expected_investment_portfolio': expected_investment_portfolio,
         }).execute()
     except Exception as e:
         kind = _txn_error_kind(e)

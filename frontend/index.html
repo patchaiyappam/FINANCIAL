@@ -120,35 +120,35 @@
         }
     </style>
 </head>
-<body>
-    <div class="particles" id="particles"></div>
+<body class="login-page">
+    <header class="login-brand"><i class="fa-solid fa-coins" aria-hidden="true"></i> Money Master</header>
 
-    <div class="login-container">
+
+    <main class="login-container">
+<section class="login-intro" aria-labelledby="introTitle"><span class="eyebrow">Your next move matters</span><h2 id="introTitle">Big decisions.<br><span>Smarter money.</span></h2><p>Build your financial confidence, one decision at a time. Balance everyday life, unexpected events, and your next investment.</p><div class="game-facts"><div><strong>₹1 lakh</strong><span>Monthly income</span></div><div><strong>12</strong><span>Months to master</span></div><div><strong>100%</strong><span>Virtual money</span></div></div><p class="login-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> A financial simulation. Learn by playing.</p></section>
         <div class="login-card glass-card animate-fade-in-up">
             <div class="login-icon animate-float">
                 <i class="fa-solid fa-coins" style="color: white;"></i>
             </div>
 
-            <h1 class="display-hero g-text" style="margin-bottom: 0.5rem;">Money Master</h1>
+            <h1 class="display-hero g-text" style="margin-bottom: 0.5rem;">Welcome back</h1>
             <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 0.5rem;">
-                Financial Simulation Game
+                Log in to continue your financial journey.
             </p>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6; margin-bottom: 2rem; max-width: 380px; margin-left: auto; margin-right: auto;">
-                Manage your ₹1,00,000 monthly income. Invest wisely, survive emergencies, and become the ultimate financial strategist over 12 months.
-            </p>
+            <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:1.5rem;">Use the username and password provided by your event organizer.</p>
 
             <!-- ── Email + password auth ── -->
             <form id="authForm" style="display:flex; flex-direction:column; gap:0.9rem; max-width:340px; margin:0 auto; text-align:left;">
                 <div>
-                    <label class="auth-label">Username</label>
+                    <label class="auth-label" for="email">Username</label>
                     <input id="email" type="text" class="input-glass" placeholder="your username" autocomplete="username" required>
                 </div>
                 <div>
-                    <label class="auth-label">Password</label>
-                    <input id="password" type="password" class="input-glass" placeholder="••••••••" autocomplete="current-password" minlength="6" required>
+                    <label class="auth-label" for="password">Password</label>
+                    <div class="password-wrap"><input id="password" type="password" class="input-glass" placeholder="••••••••" autocomplete="current-password" minlength="6" required><button type="button" class="password-toggle" id="passwordToggle" aria-controls="password" aria-pressed="false">Show</button></div>
                 </div>
 
-                <div id="loginError" class="auth-error d-none"></div>
+                <div id="loginError" role="alert" class="auth-error d-none"></div>
 
                 <button id="submitBtn" type="submit" class="btn-glow" style="width:100%; justify-content:center; margin-top:0.25rem;">
                     <span id="submitLabel">Log in</span>
@@ -174,48 +174,20 @@
             </p>
         </div>
 
-        <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 2rem; margin-bottom: 3rem;">
-            Built for financial literacy • Zero real money involved
-        </p>
-
-        <!-- ── Developers Section ── -->
-        <div class="developers-section animate-fade-in-up" style="animation-delay: 0.4s;">
-            <h3 class="section-title g-text" style="font-size: 1.2rem; margin-bottom: 2rem;">Developed By</h3>
-            <div class="dev-cards">
-                <div class="dev-card glass-card">
-                    <div class="dev-avatar">
-                        <i class="fa-solid fa-code"></i>
-                    </div>
-                    <div class="dev-info">
-                        <h4>Patchaiyappan</h4>
-                        <span>Lead Developer</span>
-                        <div class="dev-socials">
-                            <a href="#"><i class="fa-brands fa-github"></i></a>
-                            <a href="#"><i class="fa-brands fa-linkedin"></i></a>
-                        </div>
-                    </div>
-                </div>
-                <!-- You can add more developers here -->
-            </div>
-        </div>
-    </div>
-
+</main>
+<footer class="login-credit">Developed by Patchaiyappan · Built for financial literacy</footer>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="./js/config.js"></script>
     <script src="./js/auth.js"></script>
     <script>
-        // Create floating particles
-        const container = document.getElementById('particles');
-        for (let i = 0; i < 30; i++) {
-            const p = document.createElement('div');
-            p.className = 'particle';
-            p.style.left = Math.random() * 100 + '%';
-            p.style.animationDuration = (8 + Math.random() * 12) + 's';
-            p.style.animationDelay = Math.random() * 8 + 's';
-            p.style.width = (1 + Math.random() * 2) + 'px';
-            p.style.height = p.style.width;
-            container.appendChild(p);
-        }
+        document.getElementById('passwordToggle').addEventListener('click', function () {
+            const input = document.getElementById('password');
+            const visible = input.type === 'password';
+            input.type = visible ? 'text' : 'password';
+            this.textContent = visible ? 'Hide' : 'Show';
+            this.setAttribute('aria-pressed', String(visible));
+        });
+
     </script>
 </body>
 </html>

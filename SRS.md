@@ -1,6 +1,6 @@
 # Money Master — Software Requirements Specification
 
-**Version 1.0** · 2026-07-12
+**Version 1.1** · updated 2026-10-20
 Architecture decisions: see `ARCHITECTURE_DECISIONS.md`. Product content: see `PRD.md`. This document specifies the system as **actually built** — contracts, invariants, and requirements that code does not self-document.
 
 ---
@@ -24,26 +24,27 @@ frontend/*.html  →  Flask (backend/app.py)
 
 ## 2. Module Responsibilities
 
-- **engine/** — pure game logic. No HTTP, no direct DB writes (ADR-007 discipline). `monthly_processor.process_month_for_player` is the core loop: sales credit → salary → expenses (inflation-adjusted) → investment growth → events → bike EMI → loan EMI/interest → safety net + discipline grading → risk → net worth → Financial Health Score.
+- **engine/** — pure game logic. No HTTP, no direct DB writes (ADR-007 discipline). `monthly_processor.process_month_for_player` is the core loop: sales credit → salary → expenses (inflation-adjusted) → existing market growth and emergency interest → investment-lot returns/fees/maturities → events → bike EMI → loan EMI/interest → safety net + discipline grading → risk → net worth → Financial Health Score.
+- **investment_engine** — product rules, lot lifecycle, risk/liquidity exposure, FIFO sale and exit fees. Product settings are simulation assumptions in `INVESTMENT_RULES.md`; the investment Horizon Lab is client-side and excluded from persisted competition results.
 - **market_engine** — global market path (ADR-009): RNG seeded `GLOBAL:{month}:market`; identical returns for all players. Also net worth and 0–100 risk score.
 - **event_engine** — per-player state-driven events (seeded `user_id:{month}:events`) + globally-seeded market events (`GLOBAL:{month}:market_events`) + admin event injection.
 - **scoring** — composite Financial Health Score (ADR-008). Pure functions; formula public.
-- **services/game_service** — DB reads, leaderboard query, `fair_roll` (deterministic per `user_id:month:choice_id`), RPC payload validation.
+- **services/game_service** — DB reads, score-refreshed leaderboard, `fair_roll` (deterministic per `user_id:month:choice_id`), RPC payload validation.
 - **routes/** — HTTP only: auth extraction, input validation, engine invocation, response shaping.
 
 ## 3. API Contract (summary)
 
 **Player** (Supabase JWT required except status/leaderboard):
-`GET /game-status` · `GET /case-study` · `POST /allocate` (month-1 allocation; server validates exact ₹1,00,000 total, non-negative values, lifestyle ∈ {city, outer}; rejects re-allocation) · `GET /dashboard` (state + game + choices + trust + logs) · `GET /leaderboard` (ranked by `financial_health_score` desc, `net_worth` tiebreak) · asset-sale, optional-choice, and relative-action endpoints (rate-limited per user/month; probabilistic outcomes via `fair_roll`).
+`GET /game-status` · `GET /case-study` · `POST /allocate` (Month 1; exact budget includes investment lots and validates finite nonnegative amounts and bike cost) · `POST /allocate-month` (monthly stocks, gold, emergency fund, investment lots, loan prepayment; cash remainder stays liquid) · `GET /dashboard` (state, refreshed derived score, investment summary, game and logs) · `POST /investment-sale-quote` · `POST /sell-investment` (idempotent request ID and portfolio compare-and-swap) · `GET /leaderboard` (current score desc, net worth tie-break) · existing asset-sale, insurance, loan, marriage and negotiation endpoints.
 
 **Admin** (`admin_required`):
 `POST /start-game` (wipes all player data — destructive, intentional) · `POST /next-month` (advances all players atomically; requires `expected_month` for race protection) · `POST /end-game` · `POST /event`, `DELETE /event/<id>` · `POST /choice-admin` · `GET /admin/players` · `POST /admin/update-player` (whitelist-field edit; net worth always recomputed server-side; audit-logged) · `POST /admin/reset-player`.
 
 ## 4. Data Model
 
-Tables: `users`, `player_state` (1 row/player; includes `discipline_score`, `financial_health_score`), `player_loans`, `player_sales`, `player_month_log` (append-only history/audit), `player_relative_score`, `player_relative_actions`, `events` (admin-authored), `optional_choices`, `case_study`, `game_control` (singleton: `current_month`, `game_status`).
+Tables: `users`, `player_state` (1 row/player; includes `investment_portfolio JSONB`, `discipline_score`, `financial_health_score`), `player_loans`, `player_sales`, `player_month_allocations` (including investment allocations), `player_month_log` (append-only history/audit), `player_relative_score`, `player_relative_actions`, `events` (admin-authored), `optional_choices`, `case_study`, `game_control` (singleton: `current_month`, `game_status`). Each investment is a lot with value, principal, purchase month and optional maturity month.
 
-Canonical DDL: `supabase.sql`. Incremental change: `fairness_fixes_migration.sql`. Future household model (`households`, `owners` supertype): pending ADR-001/005 database design — **not yet implemented**.
+Canonical DDL and upgrade path: `supabase.sql`; it is repeatable and preserves existing rows. Historical migrations are not an installation sequence and must not be replayed after the canonical file. Future household model (`households`, `owners` supertype): pending ADR-001/005 database design — **not yet implemented**.
 
 ## 5. Invariants (binding)
 
@@ -51,7 +52,7 @@ Canonical DDL: `supabase.sql`. Incremental change: `fairness_fixes_migration.sql
 2. **Fairness:** no unseeded or per-player randomness may affect ranking. Market outcomes identical for all players in a month.
 3. **Atomicity:** month advancement is one RPC (`process_month_atomically`) — locks `game_control` and player rows, validates the month transition, refuses to reprocess an already-logged month (idempotency), applies all state/loan/log changes or none.
 4. **History is append-only:** financial history is never overwritten; `player_month_log` records every month and every admin correction.
-5. **Server authority:** the client never supplies computed financials; net worth and score are always recomputed server-side.
+5. **Server authority:** the client never supplies computed financials; net worth is recomputed transactionally and score/risk/net worth views are refreshed from the authoritative portfolio snapshot.
 6. **No mid-game changes (ADR-012/013):** Level 3+ deploys and all migrations occur only between games.
 
 ## 6. Security Requirements
@@ -62,7 +63,7 @@ Supabase Auth JWTs; `admin_required` on all admin routes; RLS policies per `secu
 
 Backend: Flask (Render or local `run_backend.bat`). Frontend: static hosting (Netlify, `netlify.toml`). Database: Supabase project; schema via SQL editor.
 
-**Binding pair rule:** backend code and its matching migration deploy together, between games. Current pending pair: fairness-fix backend + `fairness_fixes_migration.sql`.
+**Binding pair rule:** backend code and the matching canonical `supabase.sql` deploy together between games. `supabase.sql` is the repeatable installation/upgrade path; historical migrations are not replayed afterward. Any live upgrade requires a reviewed backup and staging rehearsal. No live database change is included in this implementation.
 
 ## 8. Verification Requirements
 
@@ -76,7 +77,7 @@ Compliance is stated honestly per requirement; ❌ items are open work, not aspi
 |---|---|---|
 | Performance | Dashboard response < 2 s | ✅ (simple indexed reads) |
 | Performance | Month processing < 10 s for 500 players | ❌ **Not met.** Per-player sequential queries in `/next-month` → ~50–100 s at 500 players. Known fix: batch-fetch loans/sales (2 queries total, group in memory). Level 3 change, pending. Honest current capacity: ~50–100 players. |
-| Performance | Leaderboard generation < 1 s | ✅ (single ordered query, ≤500 rows) |
+| Performance | Leaderboard generation < 1 s | ⚠️ Score refresh now reads portfolio snapshots; target-scale timing has not been load-tested. |
 | Reliability | No partial financial commits; month processing atomic | ✅ (`process_month_atomically` RPC — Invariant 3) |
 | Availability | Operational throughout live events | ✅ by process (no mid-game deploys, ADR-012); no HA infrastructure claimed |
 | Availability | Admin recovery procedures documented | ❌ **Missing artifact.** No runbook exists for mid-event failures (backend down, wrong event published, month advanced early). Required before next live event. |

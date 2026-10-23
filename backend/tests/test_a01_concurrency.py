@@ -70,9 +70,9 @@ class TestA01Concurrency(unittest.TestCase):
     def _call(self, deltas=None, action_key=None, require_cash=None):
         with psycopg.connect(self.uri, autocommit=True) as c:
             c.execute(
-                "SELECT public.player_apply_atomic(%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s::jsonb,%s::jsonb)",
+                "SELECT public.player_apply_atomic(%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)",
                 (_UID, 1, action_key, require_cash, json.dumps(deltas or {}), json.dumps({}),
-                 False, False, json.dumps([]), json.dumps([])),
+                 False, False, json.dumps([]), json.dumps([]), None),
             )
 
     def _cash_loans_stocks(self):

@@ -60,6 +60,21 @@
             text-transform: uppercase;
             letter-spacing: 0.06em;
         }
+        .investment-hint {
+            font-size: 0.7rem;
+            line-height: 1.35;
+            color: var(--text-muted);
+            margin: 0.15rem 0 0.35rem;
+        }
+        .decision-warning {
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.07);
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 <body style="padding: 2rem 1rem;">
@@ -119,10 +134,11 @@
                 <div class="section-header">
                     <div class="section-icon icon-success"><i class="fa-solid fa-coins"></i></div>
                     <div>
-                        <div class="section-title">Financial Allocation</div>
-                        <div class="section-subtitle">Distribute your remaining income</div>
+                        <div class="section-title">Financial Allocation & Investment Decisions</div>
+                        <div class="section-subtitle">Every product trades off return, risk, fees, or access to cash</div>
                     </div>
                 </div>
+                <div class="decision-warning"><strong>Investment dilemma:</strong> the safest choice may lag inflation; the strongest-looking fund can fall sharply; a business venture may outperform or lose value; and long-term tax-efficient choices lock away cash. You are balancing growth, liquidity and the Financial Health Score at the same time. The outcome is revealed only after the shared market scenario resolves.</div>
                 <form id="allocationForm">
                     <div class="alloc-input-group">
                         <div class="alloc-field">
@@ -156,6 +172,61 @@
                         <div class="alloc-field">
                             <label class="label-glass"><i class="fa-solid fa-shield-halved"></i> Emergency Fund</label>
                             <input type="number" class="input-glass user-input" id="valEmergency" value="10000" min="0">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-building-columns"></i> Bank FD · 3 months</label>
+                            <div class="investment-hint">Low risk · fixed game rate · 2% early-exit penalty</div>
+                            <input type="number" class="input-glass user-input" id="valBankFd" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-landmark"></i> Treasury Bill · 6 months</label>
+                            <div class="investment-hint">Low risk · locked to maturity · early sale costs 1%</div>
+                            <input type="number" class="input-glass user-input" id="valTreasuryBill" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-droplet"></i> Liquid Mutual Fund</label>
+                            <div class="investment-hint">Easy access · small NAV fluctuations · not a deposit</div>
+                            <input type="number" class="input-glass user-input" id="valLiquidFund" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-scale-unbalanced-flip"></i> Arbitrage Mutual Fund</label>
+                            <div class="investment-hint">Lower volatility · spread can shrink · 0.25% early exit fee</div>
+                            <input type="number" class="input-glass user-input" id="valArbitrageFund" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-chart-line"></i> Nifty 50 Index Fund</label>
+                            <div class="investment-hint">Broad equity exposure · low game fee · market can fall</div>
+                            <input type="number" class="input-glass user-input" id="valIndexFund" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-arrow-trend-up"></i> Flexi-cap Equity Fund</label>
+                            <div class="investment-hint">Higher upside and downside · higher fee · exit fee early</div>
+                            <input type="number" class="input-glass user-input" id="valFlexiCap" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-scale-balanced"></i> Balanced Advantage Fund</label>
+                            <div class="investment-hint">Mixes equity, gold and debt · may lag in strong rallies</div>
+                            <input type="number" class="input-glass user-input" id="valBalancedAdvantage" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-coins"></i> Gold ETF</label>
+                            <div class="investment-hint">Gold-linked movement · liquid · market price can fall</div>
+                            <input type="number" class="input-glass user-input" id="valGoldEtf" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-store"></i> Small Business / Resale Venture</label>
+                            <div class="investment-hint">Potential upside · business-cycle risk · 6-month target lock · 5% early exit</div>
+                            <input type="number" class="input-glass user-input" id="valBusinessVenture" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-lock"></i> PPF · long-term</label>
+                            <div class="investment-hint">Stable game rate · inaccessible during this 12-month game</div>
+                            <input type="number" class="input-glass user-input" id="valPpf" value="0" min="0" step="500">
+                        </div>
+                        <div class="alloc-field">
+                            <label class="label-glass"><i class="fa-solid fa-person-cane"></i> NPS · retirement</label>
+                            <div class="investment-hint">Market-linked · retirement-focused · locked in this game</div>
+                            <input type="number" class="input-glass user-input" id="valNps" value="0" min="0" step="500">
                         </div>
                         <div class="alloc-field">
                             <label class="label-glass"><i class="fa-solid fa-wallet"></i> Misc (Cash left)</label>

@@ -5,6 +5,7 @@
 
 import random
 import hashlib
+from engine.investment_engine import portfolio_value, portfolio_risk_exposure
 from models.constants import (
     STOCK_BASE_GROWTH, GOLD_BASE_GROWTH, EMERGENCY_FUND_GROWTH,
     STOCK_VOLATILITY_MIN, STOCK_VOLATILITY_MAX,
@@ -187,9 +188,10 @@ def calculate_inflation_adjustment(base_expense: float, month: int) -> float:
 
 
 def calculate_net_worth(cash: float, stocks: float, gold: float,
-                         emergency_fund: float, loans: float) -> float:
-    """Calculate total net worth = assets - liabilities."""
-    return round(cash + stocks + gold + emergency_fund - loans, 2)
+                         emergency_fund: float, loans: float,
+                         investment_portfolio: dict | None = None) -> float:
+    """Calculate net worth = liquid assets + market assets + investment portfolio - debt."""
+    return round(cash + stocks + gold + emergency_fund + portfolio_value(investment_portfolio) - loans, 2)
 
 
 def calculate_risk_score(player: dict) -> int:
@@ -197,20 +199,23 @@ def calculate_risk_score(player: dict) -> int:
     Calculate a 0-100 risk score based on portfolio composition.
     Higher = riskier.
     """
+    portfolio = player.get('investment_portfolio') or {}
+    portfolio_total = portfolio_value(portfolio)
+    risk_exposure = portfolio_risk_exposure(portfolio)
     total_assets = (
         float(player.get('cash', 0)) +
         float(player.get('stocks', 0)) +
         float(player.get('gold', 0)) +
-        float(player.get('emergency_fund', 0))
+        float(player.get('emergency_fund', 0)) + portfolio_total
     )
     if total_assets <= 0:
         return 100  # Maximum risk if no assets
 
-    stock_ratio = float(player.get('stocks', 0)) / total_assets
+    stock_ratio = (float(player.get('stocks', 0)) + risk_exposure) / total_assets
     emergency_ratio = float(player.get('emergency_fund', 0)) / total_assets
     loan_ratio = float(player.get('loans', 0)) / max(total_assets, 1)
 
-    # Higher stock ratio = higher risk
+    # Higher risky-asset exposure = higher risk. Product risk weights are game heuristics.
     risk = int(stock_ratio * 60)
     # Low emergency fund = higher risk
     risk += int((1 - min(emergency_ratio * 5, 1)) * 20)

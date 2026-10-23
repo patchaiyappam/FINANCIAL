@@ -1,6 +1,6 @@
 # Money Master - Product Requirements Document
 
-Current implementation: 2026-09-08. Owner: A. Patchaiyappan.
+Current implementation: 2026-10-20. Owner: A. Patchaiyappan.
 This document reflects executable behavior; historical design documents may
 describe older costs, marriage timing or future household architecture.
 
@@ -30,6 +30,15 @@ advancement. Manual start, settings, corrections, reset and end controls remain.
 - Lifestyle: City base costs Rs88,000/month; Outer Rs82,000/month.
 - Investments: stocks and gold follow a common market scenario; emergency funds
   earn 0.5% monthly. Authored markets take precedence over automatic generation.
+- Additional investment lots: 3-month bank FD, 6-month Treasury bill, liquid and
+  arbitrage funds, Nifty 50 index, flexi-cap equity, balanced advantage, Gold ETF,
+  locked PPF/NPS, and a fictional business/resale venture. Shared market scenarios,
+  monthly game fees, early-exit costs and automatic maturities are described in
+  INVESTMENT_RULES.md. These are simulation assumptions, not current market rates.
+  Month 12 final standings include unmatured and retirement holdings as assets.
+- Monthly allocation can buy additional investment products from available cash.
+  Sales apply immediately with the quoted exit cost. Month 12 sales credited in
+  the next month are blocked because that month is never processed.
 - Bike: Rs10,000 down payment, Rs5,000 EMI, three-month lock-in and 50% transport
   savings under the existing rules.
 - Asset sales: 10% penalty; proceeds arrive next month.
@@ -94,8 +103,10 @@ Financial Health Score weights remain:
 | Discipline | 15% |
 
 Leaderboard order is Financial Health Score descending, then net worth descending.
-Monthly processing calculates the score. Final completion, after Month 12 turns
-are locked, refreshes it from the final portfolios before ending the game.
+Monthly processing calculates the score. Dashboard and leaderboard views also
+recalculate derived score and net worth from current holdings so purchases and
+sales are reflected before the next monthly roll. Final completion, after Month 12
+turns are locked, refreshes it from the final portfolios before ending the game.
 
 ## Operational status
 

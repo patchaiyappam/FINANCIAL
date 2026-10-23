@@ -16,7 +16,7 @@ Starting point: clean `main` on 2026-09-08. No production database operations.
 
 | Application | Table / columns | RPC | Previous definition |
 | --- | --- | --- | --- |
-| game_service, monthly_processor | player_state: all engine updated_state fields | process_month_atomically | supabase.sql, missing household/insurance fields |
+| game_service, monthly_processor, investment_engine | player_state: all engine fields plus investment_portfolio JSONB lots | process_month_atomically, player_apply_atomic | supabase.sql, missing household/insurance fields and portfolio persistence |
 | game_service.apply_player_txn | state balances, action keys, loan rows | player_apply_atomic | a01_atomic_player_txn_migration.sql only |
 | monthly allocation | player_month_allocations: available_cash, to_stocks, to_gold, to_emergency_fund, to_loan_prepay, kept_as_cash | player_apply_atomic for balances | v2_migration.sql |
 | market/admin routes | market_scenarios: month, name, reason, stock_pct, gold_pct, regime | monthly RPC persists effects | v2_migration.sql |
@@ -29,7 +29,13 @@ Starting point: clean `main` on 2026-09-08. No production database operations.
 | admin/event seed/insurance | events.category | monthly RPC persists effects | missing from canonical schema |
 | admin/player gates | game_control.marriage_round_active, negotiation_enabled | transaction gates | marriage migration; negotiation flag absent |
 | auth, sales, relatives, logs, choices | users, admins, case_study, player_sales, relative_events, player_relative_score/actions, player_month_log, optional_choices, player_month_actions | sell_asset_atomic, signup trigger | supabase.sql |
+| investment allocation and exits | player_state.investment_portfolio; player_month_allocations.investment_allocations | player_apply_atomic with portfolio compare-and-swap for exits | canonical supabase.sql |
 
 The canonical schema will retain the original tables and policies, add the missing
 runtime objects, and replace only the functions whose contracts require repair.
 Historical migrations remain historical; they must not be replayed afterward.
+
+The strategic investment feature uses the same canonical `supabase.sql` path. The
+standalone migration from the supplied archive is excluded because it redefines
+older transaction functions and is unnecessary when the canonical schema is run.
+No production database operation is part of this implementation.

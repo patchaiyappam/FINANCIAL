@@ -35,7 +35,8 @@ class RuntimeDatabaseTests(unittest.TestCase):
     def txn(self, **changes):
         args = dict(p_user_id=UID, p_month=4, p_action_key=None, p_require_cash=None,
                     p_deltas={}, p_sets={}, p_clamp_satisfaction=False,
-                    p_recompute_networth=True, p_loan_inserts=[], p_loan_updates=[])
+                    p_recompute_networth=True, p_loan_inserts=[], p_loan_updates=[],
+                    p_expected_investment_portfolio=None)
         args.update(changes)
         return self.db.rpc('player_apply_atomic', args).execute().data
 
@@ -73,6 +74,12 @@ class RuntimeDatabaseTests(unittest.TestCase):
             self.txn(p_action_key='failure', p_deltas={'cash': -1000})
 
     def test_initial_allocation_log_failure_is_retryable(self):
+        # Reproduce the missing deployed RPC, then install the repair twice.
+        self.db.call('DROP FUNCTION public.initialize_player(jsonb)', exec=True)
+        repair = (ROOT / 'repair_initialize_player.sql').read_text(encoding='utf-8')
+        self.db.call(repair, exec=True)
+        self.db.call(repair, exec=True)
+        self.assertEqual(float(self.db.table('player_state').select().execute().data[0]['cash']), 100000)
         self.db.table('player_state').delete().eq('user_id', UID).execute()
         self.db.table('game_control').update({'current_month': 1}).eq('id', 1).execute()
         initial = {'user_id': UID, 'cash': 100000, 'stocks': 0, 'gold': 0,
@@ -114,10 +121,33 @@ class RuntimeDatabaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'TURN_NOT_PLAYABLE'):
             self.txn(p_sets={'insurance_plan': 'none'})
 
+    def test_absent_unstarted_players_do_not_block_but_started_players_do(self):
+        for index, username in enumerate(('cb22s612706', 'manoj', 'patchai2004'), 2):
+            uid = f'00000000-0000-0000-0000-{index:012d}'
+            self.db.call('INSERT INTO auth.users(id,email) VALUES ($1,$2)',
+                         [uid, username + '@event.local'])
+        self.db.table('game_control').update({'current_month': 1}).eq('id', 1).execute()
+        self.db.table('player_state').update({'month': 1, 'status': 'active'}).eq('user_id', UID).execute()
+        repair = (ROOT / 'mark_absent_players.sql').read_text(encoding='utf-8')
+        self.db.call(repair, exec=True)
+        self.db.call(repair, exec=True)
+        gate = self.db.rpc('begin_month_transition', {'p_expected_month': 1}).execute().data
+        self.assertFalse(gate['ready'])
+        self.assertEqual(gate['unlocked_count'], 1)
+        self.assertEqual(gate['unallocated_count'], 0)
+        self.db.table('player_state').update({'status': 'waiting'}).eq('user_id', UID).execute()
+        self.assertTrue(self.db.rpc('begin_month_transition', {'p_expected_month': 1}).execute().data['ready'])
+        self.assertEqual(len(self.db.table('users').select().execute().data), 4)
+        self.assertEqual(float(self.db.table('player_state').select().execute().data[0]['cash']), 100000)
+        self.db.table('game_control').update({'game_status': 'active'}).eq('id', 1).execute()
+        self.db.table('player_month_actions').delete().eq('month', 0).execute()
+        gate = self.db.rpc('begin_month_transition', {'p_expected_month': 1}).execute().data
+        self.assertEqual(gate['unallocated_count'], 3)
+
     def test_event_category_and_rpc_permissions(self):
         row = self.db.table('events').insert({'month': 4, 'category': 'medical', 'event_name': 'Medical', 'value': -1000}).execute().data[0]
         self.assertEqual(row['category'], 'medical')
-        grants = self.db.call("SELECT has_function_privilege('authenticated', 'public.player_apply_atomic(uuid,int,text,numeric,jsonb,jsonb,boolean,boolean,jsonb,jsonb)', 'EXECUTE') AS allowed")['rows']
+        grants = self.db.call("SELECT has_function_privilege('authenticated', 'public.player_apply_atomic(uuid,int,text,numeric,jsonb,jsonb,boolean,boolean,jsonb,jsonb,jsonb)', 'EXECUTE') AS allowed")['rows']
         self.assertFalse(grants[0]['allowed'])
 
     def test_negotiation_result_failure_rolls_back_money_and_claim(self):

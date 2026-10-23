@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS public.player_state (
     stocks NUMERIC DEFAULT 0,
     gold NUMERIC DEFAULT 0,
     emergency_fund NUMERIC DEFAULT 0,
+    investment_portfolio JSONB NOT NULL DEFAULT '{}'::jsonb,
     loans NUMERIC DEFAULT 0,
     pending_cash_next_month NUMERIC DEFAULT 0,
     lifestyle_type TEXT,
@@ -247,9 +248,24 @@ CREATE TABLE IF NOT EXISTS public.player_month_allocations (
     available_cash NUMERIC NOT NULL DEFAULT 0,
     to_stocks NUMERIC NOT NULL DEFAULT 0, to_gold NUMERIC NOT NULL DEFAULT 0,
     to_emergency_fund NUMERIC NOT NULL DEFAULT 0, to_loan_prepay NUMERIC NOT NULL DEFAULT 0,
+    investment_allocations JSONB NOT NULL DEFAULT '{}'::jsonb,
     kept_as_cash NUMERIC NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (user_id, month)
 );
+ALTER TABLE public.player_state
+    ADD COLUMN IF NOT EXISTS investment_portfolio JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.player_month_allocations
+    ADD COLUMN IF NOT EXISTS investment_allocations JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE OR REPLACE FUNCTION public.investment_portfolio_value(p_portfolio JSONB)
+RETURNS NUMERIC AS $$
+    SELECT COALESCE(SUM((item.lot->>'value')::numeric), 0)
+    FROM jsonb_each(COALESCE(p_portfolio, '{}'::jsonb)) AS product(key, lots)
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(product.lots) = 'array' THEN product.lots ELSE '[]'::jsonb END
+    ) AS item(lot)
+$$ LANGUAGE sql IMMUTABLE;
+
 CREATE TABLE IF NOT EXISTS public.market_scenarios (
     id BIGSERIAL PRIMARY KEY, month INTEGER NOT NULL UNIQUE CHECK (month BETWEEN 1 AND 12),
     name TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
@@ -359,6 +375,7 @@ BEGIN
         stocks = (data->>'stocks')::numeric,
         gold = (data->>'gold')::numeric,
         emergency_fund = (data->>'emergency_fund')::numeric,
+        investment_portfolio = COALESCE((data->'investment_portfolio')::jsonb, ps.investment_portfolio),
         lifestyle_type = data->>'lifestyle_type',
         bike_status = (data->>'bike_status')::boolean,
         loans = (data->>'loans')::numeric,
@@ -445,7 +462,7 @@ GRANT EXECUTE ON FUNCTION public.process_month_atomically(json, json, json, json
 -- ATOMIC SELL RPC (QA-003)
 -- Locks the player row and performs check-decrement-credit as one atomic
 -- unit, closing the read-then-write race in the old /sell implementation.
--- See sell_asset_atomic_migration.sql for the standalone fix on existing projects.
+-- The canonical schema is the only supported installation/upgrade path.
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.sell_asset_atomic(
     p_user_id UUID,
@@ -465,6 +482,9 @@ BEGIN
     SELECT * INTO g FROM public.game_control WHERE id = 1 FOR SHARE;
     IF g.game_status != 'active' OR g.current_month != p_month THEN
         RAISE EXCEPTION 'TURN_NOT_PLAYABLE';
+    END IF;
+    IF p_month >= 12 THEN
+        RAISE EXCEPTION 'FINAL_MONTH_SALE_NOT_ALLOWED';
     END IF;
     SELECT * INTO v FROM public.player_state WHERE user_id = p_user_id FOR UPDATE;
     IF NOT FOUND OR v.status != 'active' OR v.month != p_month THEN
@@ -595,6 +615,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ============================================================================
 -- FRESH INSTALL COMPLETE. Running this single file on an empty Supabase project
 -- Current transaction contracts follow. Historical migration files are not replayed.
+DROP FUNCTION IF EXISTS public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB);
 CREATE OR REPLACE FUNCTION public.player_apply_atomic(
     p_user_id             UUID,
     p_month               INT,
@@ -605,7 +626,8 @@ CREATE OR REPLACE FUNCTION public.player_apply_atomic(
     p_clamp_satisfaction  BOOLEAN,
     p_recompute_networth  BOOLEAN,
     p_loan_inserts        JSONB,    -- array of loan rows to INSERT
-    p_loan_updates        JSONB     -- array of {id, current_amount, status} to UPDATE
+    p_loan_updates        JSONB,    -- array of {id, current_amount, status} to UPDATE
+    p_expected_investment_portfolio JSONB DEFAULT NULL -- optimistic concurrency for investment sale
 ) RETURNS JSON AS $$
 DECLARE
     v            public.player_state%ROWTYPE;
@@ -693,6 +715,11 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'PLAYER_NOT_FOUND';
     END IF;
+    IF p_expected_investment_portfolio IS NOT NULL
+       AND COALESCE(v.investment_portfolio, '{}'::jsonb)
+           IS DISTINCT FROM COALESCE(p_expected_investment_portfolio, '{}'::jsonb) THEN
+        RAISE EXCEPTION 'PORTFOLIO_CHANGED';
+    END IF;
 
     -- 3. Affordability guard, re-checked under the lock against authoritative cash.
     IF p_require_cash IS NOT NULL AND v.cash < p_require_cash THEN
@@ -727,7 +754,9 @@ BEGIN
     END IF;
 
     IF p_recompute_networth THEN
-        v_nw := v_cash + v_stocks + v_gold + v_ef - v_loans;
+        v_nw := v_cash + v_stocks + v_gold + v_ef
+                + public.investment_portfolio_value(COALESCE(s->'investment_portfolio', v.investment_portfolio))
+                - v_loans;
     ELSE
         v_nw := v.net_worth;   -- preserve existing behaviour (these routes never set it)
     END IF;
@@ -751,6 +780,10 @@ BEGIN
     END IF;
     IF s ? 'insurance_plan' THEN
         UPDATE public.player_state SET insurance_plan = (s->>'insurance_plan') WHERE user_id = p_user_id;
+    END IF;
+    IF s ? 'investment_portfolio' THEN
+        UPDATE public.player_state SET investment_portfolio = COALESCE(s->'investment_portfolio', '{}'::jsonb)
+        WHERE user_id = p_user_id;
     END IF;
     IF s ? 'risk_level' THEN
         UPDATE public.player_state SET risk_level = (s->>'risk_level')::int WHERE user_id = p_user_id;
@@ -804,10 +837,10 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Server-only, same lockdown as sell_asset_atomic / process_month_atomically.
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) TO service_role;
 
 
 
@@ -823,6 +856,8 @@ BEGIN
     PERFORM 1 FROM public.player_state ORDER BY user_id FOR UPDATE;
     SELECT count(*) INTO missing FROM public.users u
         WHERE NOT EXISTS (SELECT 1 FROM public.admins a WHERE a.user_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM public.player_month_actions a
+              WHERE a.user_id = u.id AND a.month = 0 AND a.action_key = 'absent')
           AND NOT EXISTS (SELECT 1 FROM public.player_state p WHERE p.user_id = u.id);
     SELECT count(*) INTO unlocked FROM public.player_state
         WHERE status != 'waiting' OR month != g.current_month
@@ -852,11 +887,11 @@ BEGIN
     INSERT INTO public.player_month_actions(user_id, month, action_key)
         VALUES ((p_state->>'user_id')::uuid, 1, 'alloc:1');
     INSERT INTO public.player_state
-        (user_id, month, cash, stocks, gold, emergency_fund, lifestyle_type, bike_status,
+        (user_id, month, cash, stocks, gold, emergency_fund, investment_portfolio, lifestyle_type, bike_status,
          bike_lock_in_months, net_worth, risk_level, discipline_score, financial_health_score, status)
     VALUES ((p_state->>'user_id')::uuid, 1, (p_state->>'cash')::numeric,
         (p_state->>'stocks')::numeric, (p_state->>'gold')::numeric,
-        (p_state->>'emergency_fund')::numeric, p_state->>'lifestyle_type',
+        (p_state->>'emergency_fund')::numeric, COALESCE(p_state->'investment_portfolio', '{}'::jsonb), p_state->>'lifestyle_type',
         (p_state->>'bike_status')::boolean, (p_state->>'bike_lock_in_months')::int,
         (p_state->>'net_worth')::numeric, (p_state->>'risk_level')::int, 100,
         (p_state->>'financial_health_score')::numeric, 'waiting') RETURNING * INTO v;

@@ -9,7 +9,15 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / '.test-runtime/python'))
+isolated_python = ROOT / '.test-runtime/python'
+try:
+    (isolated_python / 'flask/__init__.py').read_bytes()
+except OSError:
+    # Use the active interpreter's dependencies when the optional bundled
+    # runtime exists but is inaccessible in this checkout.
+    pass
+else:
+    sys.path.insert(0, str(isolated_python))
 sys.path.insert(0, str(ROOT / 'backend'))
 sys.path.insert(0, str(ROOT / 'backend/tests'))
 from local_database import LocalDatabase
@@ -30,6 +38,16 @@ class ApiLifecycleTests(unittest.TestCase):
         from flask import Flask
         cls.db = LocalDatabase()
         cls.db.install()
+        # Exercise the deployment repair before the complete game lifecycle.
+        for signature in (
+            'initialize_player(jsonb)', 'begin_month_transition(integer)',
+            'process_month_atomically(json,json,json,json,integer)',
+            'finish_game_atomically(jsonb)',
+        ):
+            cls.db.call('DROP FUNCTION public.' + signature, exec=True)
+        repair = (ROOT / 'repair_game_functions.sql').read_text(encoding='utf-8')
+        cls.db.call(repair, exec=True)
+        cls.db.call(repair, exec=True)
         cls.module_patch = patch.dict(sys.modules, {'supabase_client': SimpleNamespace(supabase=cls.db)})
         cls.module_patch.start()
         cls.patches = []
@@ -97,7 +115,15 @@ class ApiLifecycleTests(unittest.TestCase):
             self.db.call('INSERT INTO auth.users(id,email) VALUES ($1,$2)', [uid, f'{suffix}@local'])
             self.db.table('player_state').insert({'user_id': uid,
                 'financial_health_score': score, 'net_worth': worth}).execute()
-        board = self.client.get('/leaderboard').get_json()
+        # Ranking uses freshly calculated snapshots rather than stale stored
+        # score/net-worth columns; isolate the ordering contract here.
+        snapshots = {
+            1: {'financial_health_score': 70, 'net_worth': 1000},
+            2: {'financial_health_score': 60, 'net_worth': 999999},
+            3: {'financial_health_score': 70, 'net_worth': 2000},
+        }
+        with patch('engine.scoring.score_player_snapshot', side_effect=lambda row: snapshots[int(row['user_id'][-1])]):
+            board = self.client.get('/leaderboard').get_json()
         self.assertEqual([int(row['user_id'][-12:]) for row in board], [3, 1, 2])
 
     def test_event_creation_category_and_case_study_expenses(self):
@@ -106,6 +132,62 @@ class ApiLifecycleTests(unittest.TestCase):
                             'impact_target': 'cash', 'value': -1000, 'category': 'medical'})
         self.assertEqual(self.db.table('events').select().execute().data[0]['category'], 'medical')
         self.assertEqual(self.client.get('/case-study').get_json()['lifestyles'], LIFESTYLE_COSTS)
+
+    def test_investment_products_persist_across_monthly_flow_and_sales(self):
+        self.post('/allocate', {
+            'rent': -100000, 'misc': 200000, 'bike_status': True,
+            'bike_down_payment': 0
+        }, 400)
+        self.post('/allocate', {'misc': 'NaN'}, 400)
+        self.post('/allocate', {
+            'misc': 50000, 'stocks': 10000, 'gold': 5000, 'emergency_fund': 10000,
+            'bank_fd_3m': 5000, 'index_fund': 5000, 'arbitrage_fund': 5000,
+            'gold_etf': 5000, 'business_venture': 5000, 'lifestyle_type': 'outer'
+        })
+        initial = self.state()['investment_portfolio']
+        self.assertAlmostEqual(float(initial['bank_fd_3m'][0]['value']), 5000)
+        self.assertAlmostEqual(float(initial['business_venture'][0]['principal']), 5000)
+
+        self.post('/next-month', {'expected_month': 1})
+        after_market = self.state()
+        self.assertIn('gold_etf', after_market['investment_portfolio'])
+        self.assertNotEqual(after_market['investment_portfolio'], {})
+        starting_cash = float(after_market['cash'])
+        self.post('/allocate-month', {'business_venture': 2000, 'gold_etf': 3000,
+                                     'emergency_fund': 1000})
+        allocated = self.state()
+        self.assertAlmostEqual(float(allocated['cash']), starting_cash - 6000, places=2)
+        self.assertEqual(len(allocated['investment_portfolio']['business_venture']), 2)
+
+        old_gold_value = sum(float(x['value']) for x in allocated['investment_portfolio']['gold_etf'])
+        quote = self.post('/investment-sale-quote', {'product': 'gold_etf', 'amount': 1000})
+        self.assertAlmostEqual(float(quote['penalty']), 0)
+        self.assertAlmostEqual(float(quote['cash_proceeds']), 1000)
+        sold = self.post('/sell-investment', {'product': 'gold_etf', 'amount': 1000,
+                                              'request_id': 'sale-request-20261020'})
+        after_sale = self.state()
+        new_gold_value = sum(float(x['value']) for x in after_sale['investment_portfolio']['gold_etf'])
+        self.assertAlmostEqual(old_gold_value - new_gold_value, 1000, places=2)
+        self.assertAlmostEqual(float(after_sale['cash']), float(allocated['cash']) + sold['cash_proceeds'], places=2)
+        self.assertGreaterEqual(float(after_sale['net_worth']), 0)
+        duplicate = self.client.post('/sell-investment', json={
+            'product': 'gold_etf', 'amount': 1000, 'request_id': 'sale-request-20261020'
+        })
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(self.state()['investment_portfolio'], after_sale['investment_portfolio'])
+        dashboard = self.client.get('/dashboard').get_json()
+        self.assertAlmostEqual(float(dashboard['player']['net_worth']), float(after_sale['net_worth']), places=2)
+        self.assertAlmostEqual(float(dashboard['investment_summary']['value']),
+                               sum(float(lot['value']) for lots in after_sale['investment_portfolio'].values() for lot in lots), places=2)
+
+    def test_month_twelve_next_month_asset_sale_is_rejected(self):
+        self.allocate_first()
+        self.db.table('game_control').update({'current_month': 12}).eq('id', 1).execute()
+        self.db.table('player_state').update({'month': 12, 'status': 'active', 'stocks': 1000}).eq('user_id', UID).execute()
+        response = self.client.post('/sell', json={'asset': 'stocks', 'amount': 500})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(float(self.state()['stocks']), 1000)
+        self.assertEqual(self.db.table('player_sales').select().execute().data, [])
 
     def test_full_twelve_month_lifecycle(self):
         traces = []
