@@ -20,7 +20,11 @@ BEGIN
           OR (month >= 2 AND cash > 0.5 AND NOT EXISTS (
               SELECT 1 FROM public.player_month_actions a WHERE a.user_id = player_state.user_id
               AND a.month = player_state.month AND a.action_key = 'alloc:' || player_state.month))
-          OR (month = 4 AND g.marriage_round_active AND spouse_archetype IS NULL);
+          OR (month = 6 AND spouse_archetype IS NULL)
+          OR (month = 7 AND spouse_archetype IS NOT NULL AND spouse_archetype <> 'single'
+              AND NOT EXISTS (SELECT 1 FROM public.player_negotiations n
+                  WHERE n.user_id = player_state.user_id AND n.month = 7 AND n.confirmed
+                  AND n.outcome IN ('accepted_full','accepted_counter','refused','delayed','auto_resolved')));
     IF unlocked + missing > 0 THEN
         RETURN json_build_object('ready', false, 'unlocked_count', unlocked + missing,
                                   'unallocated_count', missing);

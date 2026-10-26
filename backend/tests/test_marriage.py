@@ -58,10 +58,10 @@ class TestMarriageSystem(unittest.TestCase):
 
     def test_net_worth_normalization_with_spouse_income(self):
         # Without spouse income
-        nw_score_single = net_worth_component(net_worth=100000, month=6, spouse_income=0.0)
+        nw_score_single = net_worth_component(net_worth=100000, month=MARRIAGE_MONTH + 1, spouse_income=0.0)
         
         # With spouse income (e.g. Earner: 36000)
-        nw_score_married = net_worth_component(net_worth=100000, month=6, spouse_income=36000)
+        nw_score_married = net_worth_component(net_worth=100000, month=MARRIAGE_MONTH + 1, spouse_income=36000)
         
         # Since expected resources is higher for married players, they should get a lower score for the SAME net worth
         self.assertTrue(nw_score_married < nw_score_single)

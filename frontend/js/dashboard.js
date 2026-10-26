@@ -246,7 +246,7 @@ async function loadDashboard() {
         renderMarketNews(data.market, p.month);
         renderAllocation(data.allocation, data.loan_info);
         renderLoans(data.loan_info);
-        renderActionBanner(data.allocation, p);
+        renderActionBanner(data.allocation, p, data.courtship, data.negotiation);
         renderInsurance(data.insurance);
         updateTabBadges(data.allocation);
         if (window.renderNegotiation) renderNegotiation(data.negotiation);
@@ -288,7 +288,7 @@ async function loadDashboard() {
 
 
         // ── UI Lock State ──
-        const actionButtons = document.querySelectorAll('.sell-btn, .choice-card button, #relativeContainer button');
+        const actionButtons = document.querySelectorAll('.sell-btn, #relativeContainer button');
         const endTurnBtn = document.getElementById('endTurnBtn');
         const statusBanner = document.getElementById('statusBanner');
 
@@ -661,9 +661,25 @@ function renderMarketNews(market, month) {
 }
 
 // ── ACTION BANNER ────────────────────────────────────────────────────────────
-function renderActionBanner(alloc, player) {
+function renderActionBanner(alloc, player, courtship, negotiation) {
     const banner = document.getElementById('actionBanner');
     if (!banner) return;
+    const marriagePending = courtship && player.month === courtship.marriage_month && !player.spouse_archetype;
+    const functionPending = negotiation && negotiation.active;
+    if (marriagePending || functionPending) {
+        banner.style.display = 'block';
+        document.getElementById('actionBannerTitle').innerText = marriagePending ? 'Your family wants to discuss marriage' : 'Your spouse has planned a big family function';
+        document.getElementById('actionBannerText').innerText = marriagePending
+            ? 'Month ' + player.month + ' is on hold. Compare the spouse profiles and choose a partner or stay single before continuing.'
+            : 'Discuss the proposed budget and confirm your decision before completing this month.';
+        document.getElementById('actionBannerBtn').innerText = marriagePending ? 'Meet the candidates' : 'Discuss the budget';
+        document.getElementById('actionBannerBtn').onclick = () => {
+            switchTab('home');
+            document.getElementById(marriagePending ? 'courtshipSection' : 'negotiationSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+        return;
+    }
+    document.getElementById('actionBannerBtn').innerText = 'Allocate cash';
     if (alloc && alloc.required && !alloc.done) {
         banner.style.display = 'block';
         document.getElementById('actionBannerTitle').innerText = 'Allocation required';

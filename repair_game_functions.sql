@@ -47,7 +47,11 @@ BEGIN
           OR (month >= 2 AND cash > 0.5 AND NOT EXISTS (
               SELECT 1 FROM public.player_month_actions a WHERE a.user_id = player_state.user_id
               AND a.month = player_state.month AND a.action_key = 'alloc:' || player_state.month))
-          OR (month = 4 AND g.marriage_round_active AND spouse_archetype IS NULL);
+          OR (month = 6 AND spouse_archetype IS NULL)
+          OR (month = 7 AND spouse_archetype IS NOT NULL AND spouse_archetype <> 'single'
+              AND NOT EXISTS (SELECT 1 FROM public.player_negotiations n
+                  WHERE n.user_id = player_state.user_id AND n.month = 7 AND n.confirmed
+                  AND n.outcome IN ('accepted_full','accepted_counter','refused','delayed','auto_resolved')));
     IF unlocked + missing > 0 THEN
         RETURN json_build_object('ready', false, 'unlocked_count', unlocked + missing,
                                   'unallocated_count', missing);
@@ -172,6 +176,8 @@ BEGIN
     UPDATE public.game_control
     SET
         current_month = p_next_month,
+        marriage_round_active = (p_next_month = 6),
+        negotiation_enabled = (p_next_month = 7),
         game_status = 'active'
     WHERE id = 1;
 
@@ -224,7 +230,8 @@ CREATE OR REPLACE FUNCTION public.player_apply_atomic(
     p_clamp_satisfaction  BOOLEAN,
     p_recompute_networth  BOOLEAN,
     p_loan_inserts        JSONB,    -- array of loan rows to INSERT
-    p_loan_updates        JSONB     -- array of {id, current_amount, status} to UPDATE
+    p_loan_updates        JSONB,    -- array of {id, current_amount, status} to UPDATE
+    p_expected_investment_portfolio JSONB DEFAULT NULL -- optimistic concurrency for investment sale
 ) RETURNS JSON AS $$
 DECLARE
     v            public.player_state%ROWTYPE;
@@ -254,7 +261,7 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'PLAYER_NOT_FOUND'; END IF;
     IF v.month != p_month OR v.status != 'active' THEN RAISE EXCEPTION 'TURN_NOT_PLAYABLE'; END IF;
     IF s ? 'spouse_archetype' OR s ? 'reveal' THEN
-        IF NOT g.marriage_round_active OR p_month != 4 OR v.spouse_archetype IS NOT NULL THEN
+        IF NOT g.marriage_round_active OR p_month != 6 OR v.spouse_archetype IS NOT NULL THEN
             RAISE EXCEPTION 'MARRIAGE_NOT_AVAILABLE';
         END IF;
     END IF;
@@ -263,8 +270,13 @@ BEGIN
             SELECT 1 FROM public.player_month_actions WHERE user_id = p_user_id
               AND month = p_month AND action_key = 'alloc:' || p_month)
             THEN RAISE EXCEPTION 'ALLOCATION_REQUIRED'; END IF;
-        IF p_month = 4 AND g.marriage_round_active AND v.spouse_archetype IS NULL
+        IF p_month = 6 AND v.spouse_archetype IS NULL
             THEN RAISE EXCEPTION 'MARRIAGE_DECISION_REQUIRED'; END IF;
+        IF p_month = 7 AND v.spouse_archetype IS NOT NULL AND v.spouse_archetype <> 'single'
+            AND NOT EXISTS (SELECT 1 FROM public.player_negotiations WHERE user_id = p_user_id
+                AND month = p_month AND confirmed AND outcome IN
+                ('accepted_full','accepted_counter','refused','delayed','auto_resolved'))
+            THEN RAISE EXCEPTION 'FUNCTION_DECISION_REQUIRED'; END IF;
     END IF;
     IF s ? 'reveal' THEN
         IF EXISTS (SELECT 1 FROM public.player_spouse_reveals
@@ -280,7 +292,7 @@ BEGIN
             VALUES(p_user_id, s->'reveal'->>'archetype_id', s->'reveal'->>'trait_key');
     END IF;
     IF n IS NOT NULL THEN
-        IF NOT g.negotiation_enabled OR v.spouse_archetype IS NULL OR v.spouse_archetype = 'single'
+        IF p_month != 7 OR NOT g.negotiation_enabled OR v.spouse_archetype IS NULL OR v.spouse_archetype = 'single'
             THEN RAISE EXCEPTION 'NEGOTIATION_NOT_AVAILABLE'; END IF;
         IF EXISTS (SELECT 1 FROM public.player_negotiations WHERE user_id = p_user_id
             AND month = p_month AND confirmed AND outcome IN
@@ -311,6 +323,11 @@ BEGIN
     SELECT * INTO v FROM public.player_state WHERE user_id = p_user_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'PLAYER_NOT_FOUND';
+    END IF;
+    IF p_expected_investment_portfolio IS NOT NULL
+       AND COALESCE(v.investment_portfolio, '{}'::jsonb)
+           IS DISTINCT FROM COALESCE(p_expected_investment_portfolio, '{}'::jsonb) THEN
+        RAISE EXCEPTION 'PORTFOLIO_CHANGED';
     END IF;
 
     -- 3. Affordability guard, re-checked under the lock against authoritative cash.
@@ -346,7 +363,9 @@ BEGIN
     END IF;
 
     IF p_recompute_networth THEN
-        v_nw := v_cash + v_stocks + v_gold + v_ef - v_loans;
+        v_nw := v_cash + v_stocks + v_gold + v_ef
+                + public.investment_portfolio_value(COALESCE(s->'investment_portfolio', v.investment_portfolio))
+                - v_loans;
     ELSE
         v_nw := v.net_worth;   -- preserve existing behaviour (these routes never set it)
     END IF;
@@ -370,6 +389,10 @@ BEGIN
     END IF;
     IF s ? 'insurance_plan' THEN
         UPDATE public.player_state SET insurance_plan = (s->>'insurance_plan') WHERE user_id = p_user_id;
+    END IF;
+    IF s ? 'investment_portfolio' THEN
+        UPDATE public.player_state SET investment_portfolio = COALESCE(s->'investment_portfolio', '{}'::jsonb)
+        WHERE user_id = p_user_id;
     END IF;
     IF s ? 'risk_level' THEN
         UPDATE public.player_state SET risk_level = (s->>'risk_level')::int WHERE user_id = p_user_id;
@@ -421,10 +444,10 @@ BEGIN
     RETURN row_to_json(v)::jsonb || jsonb_build_object('reveal_cost', reveal_cost);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.player_apply_atomic(UUID, INT, TEXT, NUMERIC, JSONB, JSONB, BOOLEAN, BOOLEAN, JSONB, JSONB, JSONB) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.sell_asset_atomic(
     p_user_id UUID,

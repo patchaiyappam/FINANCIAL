@@ -240,3 +240,5 @@ def _effects(proposal: dict, amount: float) -> dict:
 
 def clamp_satisfaction(value: float) -> int:
     return int(max(SATISFACTION_MIN, min(SATISFACTION_MAX, round(value))))
+
+DEFAULT_PROPOSALS.update({"teacher": dict(DEFAULT_PROPOSALS["saver"]), "healthcare": dict(DEFAULT_PROPOSALS["anchor"])})

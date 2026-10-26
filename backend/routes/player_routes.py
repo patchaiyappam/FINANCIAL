@@ -686,6 +686,8 @@ def _negotiation_context(user_id, player, game):
         return None, "The organizer has not opened conversations yet."
 
     month = int(player['month'])
+    if month != FESTIVAL_EVENT["month"]:
+        return None, "The family function conversation opens in Month " + str(FESTIVAL_EVENT["month"]) + "."
 
     try:
         catalogue = supabase.table('spouse_proposals').select('*').order('id').execute().data or []
@@ -710,7 +712,7 @@ def _negotiation_context(user_id, player, game):
     except Exception:
         return None, "Conversation history is unavailable. Please try again."
 
-    if any(r.get('outcome') in ('accepted_full', 'accepted_counter', 'refused',
+    if any(r.get('confirmed') and r.get('outcome') in ('accepted_full', 'accepted_counter', 'refused',
                                 'delayed', 'auto_resolved') for r in rows):
         return None, "This month's conversation is already settled."
 
@@ -853,6 +855,10 @@ def negotiate_commit():
         argument_features=arg_features, previous_category=prev_cat,
     )
 
+    if intent == 'ASK_QUESTION' or result['outcome'] == 'invalid':
+        return jsonify({**result, 'spouse_line': result['reason'],
+                        'round': ctx['round'] - 1, 'max_rounds': NEGOTIATION_MAX_ROUNDS})
+
     new_sat = negsvc.clamp_satisfaction(ctx['satisfaction'] + result['satisfaction_delta'])
 
     # ── A-01 + D-04: apply satisfaction + any financial effects atomically under
@@ -952,11 +958,15 @@ def lock_turn():
                      f"Distribute it before completing Month {month}."
         }), 400
 
-    # Guard: in the marriage month, players must choose a spouse or single before locking
-    if player.get('month') == MARRIAGE_MONTH and not player.get('spouse_archetype'):
-        game = get_game_state()
-        if game.get('marriage_round_active'):
-            return jsonify({"error": f"You must choose to marry or stay single before completing Month {MARRIAGE_MONTH}."}), 400
+    # Story decisions must be completed before allocating and leaving the month.
+    if month == MARRIAGE_MONTH and not player.get('spouse_archetype'):
+        return jsonify({"error": "Your family has arranged marriage introductions. Choose a spouse or stay single before continuing."}), 409
+    if month == FESTIVAL_EVENT["month"] and player.get('spouse_archetype') not in (None, 'single'):
+        rows = (supabase.table('player_negotiations').select('*')
+                .eq('user_id', user_id).eq('month', month).execute().data or [])
+        if not any(r.get('confirmed') and r.get('outcome') in
+                   ('accepted_full', 'accepted_counter', 'refused', 'delayed', 'auto_resolved') for r in rows):
+            return jsonify({"error": "Your spouse has planned a big family function. Discuss and confirm the budget before continuing."}), 409
 
     try:
         apply_player_txn(user_id, month, sets={'status': 'waiting'})

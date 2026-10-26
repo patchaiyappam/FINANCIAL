@@ -28,12 +28,12 @@ class RuntimeDatabaseTests(unittest.TestCase):
 
     def setUp(self):
         self.db.call('TRUNCATE auth.users CASCADE', exec=True)
-        self.db.call("UPDATE game_control SET current_month=4, game_status='active', marriage_round_active=true, negotiation_enabled=true", exec=True)
+        self.db.call("UPDATE game_control SET current_month=6, game_status='active', marriage_round_active=true, negotiation_enabled=true", exec=True)
         self.db.call('INSERT INTO auth.users(id,email) VALUES ($1,$2)', [UID, 'test@local'])
-        self.db.table('player_state').insert({'user_id': UID, 'month': 4, 'cash': 100000}).execute()
+        self.db.table('player_state').insert({'user_id': UID, 'month': 6, 'cash': 100000}).execute()
 
     def txn(self, **changes):
-        args = dict(p_user_id=UID, p_month=4, p_action_key=None, p_require_cash=None,
+        args = dict(p_user_id=UID, p_month=6, p_action_key=None, p_require_cash=None,
                     p_deltas={}, p_sets={}, p_clamp_satisfaction=False,
                     p_recompute_networth=True, p_loan_inserts=[], p_loan_updates=[],
                     p_expected_investment_portfolio=None)
@@ -111,13 +111,13 @@ class RuntimeDatabaseTests(unittest.TestCase):
         self.assertEqual(float(self.txn()['cash']), 95000)
 
     def test_gate_rejects_unlocked_players_and_single_is_valid(self):
-        result = self.db.rpc('begin_month_transition', {'p_expected_month': 4}).execute().data
+        result = self.db.rpc('begin_month_transition', {'p_expected_month': 6}).execute().data
         self.assertFalse(result['ready'])
         self.assertEqual(result['unlocked_count'], 1)
         self.txn(p_action_key='marry', p_sets={'spouse_archetype': 'single'})
-        self.txn(p_action_key='alloc:4')
+        self.txn(p_action_key='alloc:6')
         self.txn(p_sets={'status': 'waiting'})
-        self.assertTrue(self.db.rpc('begin_month_transition', {'p_expected_month': 4}).execute().data['ready'])
+        self.assertTrue(self.db.rpc('begin_month_transition', {'p_expected_month': 6}).execute().data['ready'])
         with self.assertRaisesRegex(RuntimeError, 'TURN_NOT_PLAYABLE'):
             self.txn(p_sets={'insurance_plan': 'none'})
 
@@ -145,15 +145,17 @@ class RuntimeDatabaseTests(unittest.TestCase):
         self.assertEqual(gate['unallocated_count'], 3)
 
     def test_event_category_and_rpc_permissions(self):
-        row = self.db.table('events').insert({'month': 4, 'category': 'medical', 'event_name': 'Medical', 'value': -1000}).execute().data[0]
+        row = self.db.table('events').insert({'month': 6, 'category': 'medical', 'event_name': 'Medical', 'value': -1000}).execute().data[0]
         self.assertEqual(row['category'], 'medical')
         grants = self.db.call("SELECT has_function_privilege('authenticated', 'public.player_apply_atomic(uuid,int,text,numeric,jsonb,jsonb,boolean,boolean,jsonb,jsonb,jsonb)', 'EXECUTE') AS allowed")['rows']
         self.assertFalse(grants[0]['allowed'])
 
     def test_negotiation_result_failure_rolls_back_money_and_claim(self):
         self.txn(p_sets={'spouse_archetype': 'saver'})
+        self.db.table('game_control').update({'current_month': 7}).eq('id', 1).execute()
+        self.db.table('player_state').update({'month': 7}).eq('user_id', UID).execute()
         pending = self.db.table('player_negotiations').insert({
-            'user_id': UID, 'month': 4, 'round': 1, 'intent': 'ACCEPT_PROPOSAL',
+            'user_id': UID, 'month': 7, 'round': 1, 'intent': 'ACCEPT_PROPOSAL',
             'params': {}, 'raw_text': 'yes'}).execute().data[0]
         result = {'id': pending['id'], 'round': 1, 'intent': 'ACCEPT_PROPOSAL',
                   'params': {}, 'outcome': 'accepted_full', 'rule_input': {'ask': 1000},
@@ -164,12 +166,12 @@ class RuntimeDatabaseTests(unittest.TestCase):
             FOR EACH ROW EXECUTE FUNCTION fail_negotiation();""", exec=True)
         try:
             with self.assertRaisesRegex(RuntimeError, 'injected failure'):
-                self.txn(p_action_key='negotiate:4:1', p_deltas={'cash': -1000},
+                self.txn(p_month=7, p_action_key='negotiate:4:1', p_deltas={'cash': -1000},
                          p_sets={'negotiation': result})
-            self.assertEqual(float(self.txn()['cash']), 100000)
+            self.assertEqual(float(self.txn(p_month=7, )['cash']), 100000)
         finally:
             self.db.call('DROP TRIGGER fail_negotiation ON player_negotiations; DROP FUNCTION fail_negotiation();', exec=True)
-        self.assertEqual(float(self.txn(p_action_key='negotiate:4:1', p_deltas={'cash': -1000}, p_sets={'negotiation': result})['cash']), 99000)
+        self.assertEqual(float(self.txn(p_month=7, p_action_key='negotiate:4:1', p_deltas={'cash': -1000}, p_sets={'negotiation': result})['cash']), 99000)
         self.assertTrue(self.db.table('player_negotiations').select().execute().data[0]['confirmed'])
 
     def test_monthly_persists_every_engine_field_and_new_loan_terms(self):
@@ -178,16 +180,16 @@ class RuntimeDatabaseTests(unittest.TestCase):
         self.db.table('player_state').update({'spouse_satisfaction': 0,
             'household_expense_modifier': -1200, 'status': 'waiting', 'cash': 0}).eq('user_id', UID).execute()
         player = self.db.table('player_state').select().execute().data[0]
-        self.db.rpc('begin_month_transition', {'p_expected_month': 4}).execute()
-        result = process_month_for_player(player, 5, [{
+        self.db.rpc('begin_month_transition', {'p_expected_month': 6}).execute()
+        result = process_month_for_player(player, 7, [{
             'event_name': 'Emergency', 'category': 'medical', 'event_type': 'fixed',
             'impact_target': 'cash', 'value': -300000}], [], [], auto_events=False, auto_market=False)
         expected = result['updated_state']
         args = {'p_updates_player_state': [expected], 'p_updates_loans': [],
                 'p_inserts_loans': result['new_loans'], 'p_inserts_logs': [{
-                    'user_id': UID, 'month': 5, 'starting_cash': 0,
+                    'user_id': UID, 'month': 7, 'starting_cash': 0,
                     'ending_cash': expected['cash'], 'net_worth': expected['net_worth'], 'summary': 'test'}],
-                'p_next_month': 5}
+                'p_next_month': 7}
         self.db.rpc('process_month_atomically', args).execute()
         actual = self.db.table('player_state').select().execute().data[0]
         for key, value in expected.items():

@@ -78,16 +78,13 @@ class TestFestivalAsk(unittest.TestCase):
             self.assertEqual(fs.compute_festival_ask(aid),
                              int(round(raw / 500) * 500), aid)
 
-    def test_approved_reference_values_current_economy(self):
-        # Stage 3A approved Model C reference values (base_k = 0.50)
-        self.assertEqual(fs.compute_festival_ask("saver"), 5500)
-        self.assertEqual(fs.compute_festival_ask("earner"), 10500)
-        self.assertEqual(fs.compute_festival_ask("investor"), 4000)
-        self.assertEqual(fs.compute_festival_ask("anchor"), 6000)
+    def test_function_budget_requires_planning(self):
+        for aid in ARCHETYPES:
+            self.assertGreaterEqual(fs.compute_festival_ask(aid), 10000)
 
     def test_four_characters_are_differentiated(self):
         asks = {a: fs.compute_festival_ask(a) for a in ARCHETYPES}
-        self.assertEqual(len(set(asks.values())), 4)
+        self.assertEqual(len(set(asks.values())), len(ARCHETYPES))
         # Character-consistent ordering: status-driven Earner highest,
         # prudent Investor lowest.
         self.assertEqual(max(asks, key=asks.get), "earner")
@@ -106,13 +103,13 @@ class TestFestivalAsk(unittest.TestCase):
 
 class TestFestivalProposal(unittest.TestCase):
     def test_deterministic_and_idempotent(self):
-        a = fs.generate_festival_budget("user-1", 6, "earner")
-        b = fs.generate_festival_budget("user-1", 6, "earner")
+        a = fs.generate_festival_budget("user-1", FESTIVAL_EVENT["month"], "earner")
+        b = fs.generate_festival_budget("user-1", FESTIVAL_EVENT["month"], "earner")
         self.assertEqual(a, b)
 
     def test_same_shape_as_existing_proposals(self):
         monthly = ns.generate_proposal("user-1", 5, "earner")
-        festival = fs.generate_festival_budget("user-1", 6, "earner")
+        festival = fs.generate_festival_budget("user-1", FESTIVAL_EVENT["month"], "earner")
         self.assertEqual(set(monthly.keys()), set(festival.keys()))
         self.assertEqual(festival["month"], FESTIVAL_EVENT["month"])
         self.assertEqual(festival["kind"], "festival")
@@ -127,7 +124,7 @@ class TestNegotiationEngineUnchanged(unittest.TestCase):
     all behave exactly as for any 'lifestyle'-class proposal."""
 
     def setUp(self):
-        self.p = fs.generate_festival_budget("user-1", 6, "saver")
+        self.p = fs.generate_festival_budget("user-1", FESTIVAL_EVENT["month"], "saver")
 
     def test_accept_full_costs_cash_only(self):
         r = ns.evaluate(ACCEPT_PROPOSAL, {}, self.p, 1, 60, 500000)
@@ -146,7 +143,7 @@ class TestNegotiationEngineUnchanged(unittest.TestCase):
         self.assertEqual(r["outcome"], "continue")
 
     def test_festival_month_tracks_marriage_month(self):
-        self.assertEqual(FESTIVAL_EVENT["month"], MARRIAGE_MONTH + 2)
+        self.assertEqual(FESTIVAL_EVENT["month"], MARRIAGE_MONTH + 1)
 
 
 if __name__ == "__main__":

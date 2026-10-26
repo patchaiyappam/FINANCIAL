@@ -38,7 +38,7 @@ function renderFamilyOffers(section, offers, player, game) {
         return;
     } else {
         status.textContent = locked ? 'Offers are available. Your turn is locked or the game is paused.' :
-            'Your family has suggested these potential spouses. Choose one or skip marriage.';
+            'Your family has decided it is time to discuss marriage. The month is on hold: meet the candidates, compare their finances, and choose a spouse or stay single.';
     }
     terms.textContent = 'Monthly income and expenses start in Month ' + starts +
         '. Wedding cost: ' + formatINR(offers.wedding_cost) +
@@ -51,6 +51,10 @@ function renderFamilyOffers(section, offers, player, game) {
         heading.style.cssText = 'font-size:1.1rem;margin:0;';
         heading.textContent = option.name;
         card.append(heading);
+        const description = document.createElement('p');
+        description.textContent = option.description || '';
+        description.style.margin = '0';
+        card.append(description);
         const hasFigures = [option.income, option.expense, option.assets, option.debt].every(Number.isFinite);
         const details = document.createElement('dl');
         details.style.cssText = 'margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0.65rem;';
@@ -59,7 +63,8 @@ function renderFamilyOffers(section, offers, player, game) {
             ['Monthly expenses', formatINR(option.expense)],
             ['Net each month', (option.income >= option.expense ? '+' : '-') + formatINR(Math.abs(option.income - option.expense))],
             ['Existing assets', formatINR(option.assets)],
-            ['Existing debts', formatINR(option.debt)]
+            ['Existing debts', formatINR(option.debt)],
+            ['Net worth joining you', formatINR(option.assets - option.debt)]
         ] : [['Profile unavailable', 'Host update needed']];
         for (const [label, value] of values) {
             const dt = document.createElement('dt');

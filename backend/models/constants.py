@@ -165,7 +165,7 @@ DISCIPLINE_AUTO_LOAN = 0          # Cash crisis forced an auto-loan
 # The design intent survives: The Investor ranks ABOVE "stay single" when the
 # market grows and BELOW it when the market is flat, so the spouse choice is a
 # genuine read on the economy the admin authors, not a coin flip.
-MARRIAGE_MONTH = 4
+MARRIAGE_MONTH = 6
 # Your personal share of the wedding AFTER family contributions and cash gifts —
 # not the total cost of the event. Priced so it is a real dent (about 2 months of
 # surplus) without being the liquidity landmine Rs88,000 had become.
@@ -221,14 +221,14 @@ ARCHETYPES = {
 # only thing character traits touch in Phase 3A. Floors, counteroffers,
 # satisfaction and rounds all remain archetype-based (negotiation_service).
 FESTIVAL_EVENT = {
-    "id": "festival_m6",
-    "month": MARRIAGE_MONTH + 2,   # = 6; auto-tracks marriage timing
-    "title": "The family festival",
-    "description": ("The big family festival is coming. Both families will attend, "
+    "id": "family_function_m7",
+    "month": MARRIAGE_MONTH + 1,   # Function follows the family marriage decision.
+    "title": "The family function: agree on a budget",
+    "description": ("Next month has arrived and your spouse has planned a big family function. Both families will attend, "
                     "and she wants the household to host it properly — outfits, food, "
                     "gifts and the function itself."),
     "kind": "festival",            # no financial return, like 'lifestyle' — that is the lesson
-    "base_k": 0.50,                 # Stage-3A approved Model C calibration: 0.50x Monthly Surplus anchor
+    "base_k": 1.50,                 # Stage-3A approved Model C calibration: 0.50x Monthly Surplus anchor
     "importance": 1.08,            # Stage-2 calibration: per-event social weight
     "ev_note": "Pure consumption — nothing comes back financially. What matters is "
                "what you protect while honouring it.",
@@ -433,3 +433,18 @@ def satisfaction_expense_drift(satisfaction: float) -> float:
     """Monthly household expense adjustment from the relationship. Bounded."""
     sat = max(SATISFACTION_MIN, min(SATISFACTION_MAX, float(satisfaction)))
     return round((50.0 - sat) / 50.0 * SATISFACTION_EXPENSE_SWING, 2)
+
+# Additional fictional spouse profiles; figures are game values, not salary data.
+ARCHETYPES.update({
+    "teacher": {"name": "The Teacher", "income": 6000, "expense_mod": -1500,
+                "stocks": 2500, "gold": 6000, "ef": 29000, "loan": 0,
+                "description": "Steady teaching income, modest living costs and a savings buffer. Values a thoughtful family gathering over an expensive venue."},
+    "healthcare": {"name": "The Healthcare Professional", "income": 11500, "expense_mod": 2000,
+                   "stocks": 2500, "gold": 0, "ef": 20000, "loan": 0,
+                   "description": "Higher income with higher everyday costs. Wants the family function to feel special, but will discuss a practical budget."},
+})
+CHARACTER_PROFILES.update({
+    "teacher": {"PRU": 65, "STA": 38, "FAM": 82, "FLX": 60},
+    "healthcare": {"PRU": 48, "STA": 67, "FAM": 68, "FLX": 48},
+})
+NEGOTIATION_FLOOR_RATIO.update({"teacher": 0.52, "healthcare": 0.63})

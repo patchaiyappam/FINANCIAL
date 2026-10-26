@@ -189,6 +189,21 @@ class ApiLifecycleTests(unittest.TestCase):
         self.assertEqual(float(self.state()['stocks']), 1000)
         self.assertEqual(self.db.table('player_sales').select().execute().data, [])
 
+    def test_invalid_offers_do_not_exhaust_function_rounds(self):
+        self.allocate_first()
+        self.db.table('game_control').update({'current_month': 7, 'negotiation_enabled': True}).eq('id', 1).execute()
+        self.db.table('player_state').update({'month': 7, 'status': 'active', 'spouse_archetype': 'saver', 'cash': 1000}).eq('user_id', UID).execute()
+        for _ in range(4):
+            interpreted = self.post('/negotiate', {'message': 'yes'})
+            result = self.post('/negotiate/commit', {'intent': interpreted['intent'], 'params': interpreted['params']})
+            self.assertEqual(result['outcome'], 'invalid')
+            self.assertEqual(self.client.get('/dashboard').get_json()['negotiation']['round'], 1)
+            self.assertEqual(float(self.state()['cash']), 1000)
+        interpreted = self.post('/negotiate', {'message': 'no'})
+        self.post('/negotiate/commit', {'intent': interpreted['intent'], 'params': interpreted['params']})
+        self.post('/allocate-month', {})
+        self.post('/lock-turn')
+
     def test_full_twelve_month_lifecycle(self):
         traces = []
         self.db.table('events').insert(events_data).execute()
@@ -226,9 +241,12 @@ class ApiLifecycleTests(unittest.TestCase):
             if month == 3:
                 self.post('/loan', {'amount': 20000, 'term_months': 6})
                 self.post('/loan', {'amount': 20000, 'term_months': 6}, 400)
-            if month == 4:
-                self.post('/courtship/marry', {'choice': 'saver'}, 400)
-                self.post('/admin/settings', {'marriage_round_active': True})
+            if month == 6:
+                self.assertTrue(self.client.get('/game-status').get_json()['marriage_round_active'])
+                self.post('/allocate-month', {})
+                self.post('/lock-turn', status=409)
+                with self.assertRaisesRegex(RuntimeError, 'MARRIAGE_DECISION_REQUIRED'):
+                    self.db.rpc('player_apply_atomic', {'p_user_id': UID, 'p_month': month, 'p_action_key': None, 'p_require_cash': 0, 'p_deltas': {}, 'p_sets': {'status': 'waiting'}, 'p_clamp_satisfaction': False, 'p_recompute_networth': True, 'p_loan_inserts': [], 'p_loan_updates': [], 'p_expected_investment_portfolio': None}).execute()
                 for trait in ('income', 'expense_mod', 'assets'):
                     self.post('/courtship/reveal', {'archetype_id': 'saver', 'trait_key': trait})
                 dashboard = self.client.get('/dashboard').get_json()
@@ -239,12 +257,13 @@ class ApiLifecycleTests(unittest.TestCase):
                 arc = ARCHETYPES['saver']
                 self.assertAlmostEqual(float(self.state()['cash']), before_marriage - WEDDING_COST)
                 self.post('/courtship/marry', {'choice': 'anchor'}, 400)
-                self.post('/admin/settings', {'negotiation_enabled': True})
-            if month in (5, 6, 8):
+
+            if month == 7:
                 proposal = self.client.get('/dashboard').get_json()['negotiation']['proposal']
-                if month == 6:
-                    self.assertEqual(proposal['month'], 6)
-                    self.assertIn('festival', proposal['title'].lower())
+                self.assertEqual(proposal['month'], 7)
+                self.assertIn('function', proposal['title'].lower())
+                self.post('/allocate-month', {})
+                self.post('/lock-turn', status=409)
                 interpreted = self.post('/negotiate', {'message': 'no' if month == 8 else 'yes'})
                 before_commit = self.state()
                 result = self.post('/negotiate/commit', {'intent': interpreted['intent'], 'params': interpreted['params']})
@@ -253,7 +272,9 @@ class ApiLifecycleTests(unittest.TestCase):
                 self.assertEqual(committed[0]['outcome'], 'refused' if month == 8 else 'accepted_full', f'Month {month}')
                 self.assertAlmostEqual(float(self.state()['cash']), float(before_commit['cash']) - (0 if month == 8 else proposal['ask']))
                 self.post('/negotiate/commit', {'intent': interpreted['intent'], 'params': interpreted['params']}, 400)
-            if float(self.state()['cash']) > 0:
+            if month != 7:
+                self.assertFalse(self.client.get('/dashboard').get_json()['negotiation']['active'])
+            if float(self.state()['cash']) > 0 and month not in (6, 7):
                 self.post('/allocate-month', {'stocks': 500, 'gold': 200, 'emergency_fund': 300}
                           if float(self.state()['cash']) >= 1000 else {})
             dashboard = self.client.get('/dashboard').get_json()

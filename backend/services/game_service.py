@@ -278,7 +278,7 @@ def validate_rpc_payload(updates_state, updates_loans, inserts_loans, inserts_lo
 # ════════════════════════════════════════════════════════════════════════════
 _TXN_ERROR_KINDS = ('DUPLICATE_ACTION', 'INSUFFICIENT_CASH', 'PLAYER_NOT_FOUND',
                     'TURN_NOT_PLAYABLE', 'MARRIAGE_NOT_AVAILABLE',
-                    'ALLOCATION_REQUIRED', 'MARRIAGE_DECISION_REQUIRED',
+                    'ALLOCATION_REQUIRED', 'MARRIAGE_DECISION_REQUIRED', 'FUNCTION_DECISION_REQUIRED',
                     'NEGOTIATION_NOT_AVAILABLE', 'PENDING_NEGOTIATION_REQUIRED')
 
 

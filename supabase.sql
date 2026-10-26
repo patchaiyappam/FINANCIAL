@@ -204,6 +204,8 @@ CREATE POLICY "player_month_log read own" ON public.player_month_log FOR SELECT 
 
 
 -- Current runtime dependencies. Idempotent additions preserve existing game data.
+ALTER TABLE public.player_state ADD COLUMN IF NOT EXISTS trust_score NUMERIC DEFAULT 0;
+ALTER TABLE public.player_state ADD COLUMN IF NOT EXISTS risk_level INTEGER DEFAULT 50;
 ALTER TABLE public.events ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'admin';
 ALTER TABLE public.game_control ADD COLUMN IF NOT EXISTS marriage_round_active BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.game_control ADD COLUMN IF NOT EXISTS negotiation_enabled BOOLEAN NOT NULL DEFAULT false;
@@ -232,6 +234,8 @@ INSERT INTO public.spouse_archetypes
     ('earner', 'The Earner', 16000, 4500, 0, 0, 5000, 0),
     ('investor', 'The Investor', 4000, -1500, 35000, 16000, 4000, 0),
     ('anchor', 'The Anchor', 7000, -500, 5000, 0, 35000, 0),
+    ('teacher', 'The Teacher', 6000, -1500, 2500, 6000, 29000, 0),
+    ('healthcare', 'The Healthcare Professional', 11500, 2000, 2500, 0, 20000, 0),
     ('single', 'Single', 0, 0, 0, 0, 0, 0)
 ON CONFLICT (id) DO NOTHING;
 ALTER TABLE public.player_state ADD COLUMN IF NOT EXISTS spouse_archetype TEXT REFERENCES public.spouse_archetypes(id);
@@ -435,6 +439,8 @@ BEGIN
     UPDATE public.game_control
     SET
         current_month = p_next_month,
+        marriage_round_active = (p_next_month = 6),
+        negotiation_enabled = (p_next_month = 7),
         game_status = 'active'
     WHERE id = 1;
 
@@ -657,7 +663,7 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'PLAYER_NOT_FOUND'; END IF;
     IF v.month != p_month OR v.status != 'active' THEN RAISE EXCEPTION 'TURN_NOT_PLAYABLE'; END IF;
     IF s ? 'spouse_archetype' OR s ? 'reveal' THEN
-        IF NOT g.marriage_round_active OR p_month != 4 OR v.spouse_archetype IS NOT NULL THEN
+        IF NOT g.marriage_round_active OR p_month != 6 OR v.spouse_archetype IS NOT NULL THEN
             RAISE EXCEPTION 'MARRIAGE_NOT_AVAILABLE';
         END IF;
     END IF;
@@ -666,8 +672,13 @@ BEGIN
             SELECT 1 FROM public.player_month_actions WHERE user_id = p_user_id
               AND month = p_month AND action_key = 'alloc:' || p_month)
             THEN RAISE EXCEPTION 'ALLOCATION_REQUIRED'; END IF;
-        IF p_month = 4 AND g.marriage_round_active AND v.spouse_archetype IS NULL
+        IF p_month = 6 AND v.spouse_archetype IS NULL
             THEN RAISE EXCEPTION 'MARRIAGE_DECISION_REQUIRED'; END IF;
+        IF p_month = 7 AND v.spouse_archetype IS NOT NULL AND v.spouse_archetype <> 'single'
+            AND NOT EXISTS (SELECT 1 FROM public.player_negotiations WHERE user_id = p_user_id
+                AND month = p_month AND confirmed AND outcome IN
+                ('accepted_full','accepted_counter','refused','delayed','auto_resolved'))
+            THEN RAISE EXCEPTION 'FUNCTION_DECISION_REQUIRED'; END IF;
     END IF;
     IF s ? 'reveal' THEN
         IF EXISTS (SELECT 1 FROM public.player_spouse_reveals
@@ -683,7 +694,7 @@ BEGIN
             VALUES(p_user_id, s->'reveal'->>'archetype_id', s->'reveal'->>'trait_key');
     END IF;
     IF n IS NOT NULL THEN
-        IF NOT g.negotiation_enabled OR v.spouse_archetype IS NULL OR v.spouse_archetype = 'single'
+        IF p_month != 7 OR NOT g.negotiation_enabled OR v.spouse_archetype IS NULL OR v.spouse_archetype = 'single'
             THEN RAISE EXCEPTION 'NEGOTIATION_NOT_AVAILABLE'; END IF;
         IF EXISTS (SELECT 1 FROM public.player_negotiations WHERE user_id = p_user_id
             AND month = p_month AND confirmed AND outcome IN
@@ -864,7 +875,11 @@ BEGIN
           OR (month >= 2 AND cash > 0.5 AND NOT EXISTS (
               SELECT 1 FROM public.player_month_actions a WHERE a.user_id = player_state.user_id
               AND a.month = player_state.month AND a.action_key = 'alloc:' || player_state.month))
-          OR (month = 4 AND g.marriage_round_active AND spouse_archetype IS NULL);
+          OR (month = 6 AND spouse_archetype IS NULL)
+          OR (month = 7 AND spouse_archetype IS NOT NULL AND spouse_archetype <> 'single'
+              AND NOT EXISTS (SELECT 1 FROM public.player_negotiations n
+                  WHERE n.user_id = player_state.user_id AND n.month = 7 AND n.confirmed
+                  AND n.outcome IN ('accepted_full','accepted_counter','refused','delayed','auto_resolved')));
     IF unlocked + missing > 0 THEN
         RETURN json_build_object('ready', false, 'unlocked_count', unlocked + missing,
                                   'unallocated_count', missing);

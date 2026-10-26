@@ -56,7 +56,8 @@ function addBubble(text, who) {
     el.innerHTML = `<div style="max-width:78%; padding:0.55rem 0.85rem; border-radius:var(--radius-md);
         ${mine ? 'border-bottom-right-radius:4px; background:var(--gradient-primary); color:#fff;'
                : 'border-bottom-left-radius:4px; background:#e8f4fe; color:var(--text-primary);'}
-        font-size:0.85rem; line-height:1.5;">${text}</div>`;
+        font-size:0.85rem; line-height:1.5;"></div>`;
+    el.firstElementChild.textContent = text;
     chat.appendChild(el);
     chat.scrollTop = chat.scrollHeight;
 }
@@ -107,7 +108,7 @@ async function negotiateCommit() {
             body: JSON.stringify(_negoPending)
         });
         const d = await res.json();
-        if (!res.ok) { showToast(d.error || 'Failed', 'error'); }
+        if (!res.ok) { showToast(d.error || 'Failed', 'error'); document.getElementById('negoInputRow').style.display = 'flex'; }
         else {
             addBubble(d.spouse_line, 'her');
             if (d.resolved) {
